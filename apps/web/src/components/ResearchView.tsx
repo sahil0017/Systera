@@ -4,9 +4,12 @@ import {
   MATURITIES, OPTION_CRITERIA, RATIONALE_KEYS, ago, blankOption, growthLabel, isStale, optionProblems, scoreSeries, shortId, titleCase,
 } from '../lib/research';
 import type { Facet, OptionAssessment, OptionComparison, Report, RunReference } from '../types/research';
+import { AddDocumentForm, ConflictForm } from './KnowledgeForms';
+import { MemoryView } from './MemoryView';
+import type { ProjectSummary } from '../types/xray';
 import { Empty, ErrorNote, Meter, Skeleton, Spark, Tone, errorText, useAsync } from './ui';
 
-export type ResearchSection = 'trends' | 'reports' | 'knowledge' | 'compare' | 'feed' | 'sources' | 'provenance';
+export type ResearchSection = 'trends' | 'reports' | 'knowledge' | 'memory' | 'compare' | 'feed' | 'sources' | 'provenance';
 
 type Detail = { kind: 'topic'; key: string } | { kind: 'report'; id: string } | { kind: 'doc'; id: string } | null;
 
@@ -16,19 +19,23 @@ interface Props {
   onSection: (s: ResearchSection) => void;
   runId: string;
   onRunId: (id: string) => void;
+  projects: ProjectSummary[] | null;
+  projectId: string;
+  onProjectId: (id: string) => void;
 }
 
 const SECTIONS: Array<{ id: ResearchSection; label: string; hint: string }> = [
   { id: 'trends', label: 'Trends', hint: 'What engineering is paying attention to' },
   { id: 'reports', label: 'Research reports', hint: 'Validated findings with sources' },
   { id: 'knowledge', label: 'Knowledge search', hint: 'Search what agents can cite' },
+  { id: 'memory', label: 'Project memory', hint: 'What agents remember per project' },
   { id: 'compare', label: 'Compare options', hint: 'Choose on engineering criteria' },
   { id: 'feed', label: 'Agent updates', hint: 'What reached which agents' },
   { id: 'sources', label: 'Sources', hint: 'Where research comes from' },
   { id: 'provenance', label: 'Run provenance', hint: 'Knowledge a run used, and why' },
 ];
 
-export function ResearchView({ api, section, onSection, runId, onRunId }: Props) {
+export function ResearchView({ api, section, onSection, runId, onRunId, projects, projectId, onProjectId }: Props) {
   const [detail, setDetail] = useState<Detail>(null);
   const open = (d: Detail) => setDetail(d);
 
@@ -38,15 +45,16 @@ export function ResearchView({ api, section, onSection, runId, onRunId }: Props)
         <div className="section-label">Engineering Pulse</div>
         {SECTIONS.slice(0, 2).map((s) => <NavBtn key={s.id} s={s} on={section === s.id} onClick={() => { onSection(s.id); setDetail(null); }} />)}
         <div className="section-label">Knowledge</div>
-        {SECTIONS.slice(2, 5).map((s) => <NavBtn key={s.id} s={s} on={section === s.id} onClick={() => { onSection(s.id); setDetail(null); }} />)}
+        {SECTIONS.slice(2, 6).map((s) => <NavBtn key={s.id} s={s} on={section === s.id} onClick={() => { onSection(s.id); setDetail(null); }} />)}
         <div className="section-label">Provenance</div>
-        {SECTIONS.slice(5).map((s) => <NavBtn key={s.id} s={s} on={section === s.id} onClick={() => { onSection(s.id); setDetail(null); }} />)}
+        {SECTIONS.slice(6).map((s) => <NavBtn key={s.id} s={s} on={section === s.id} onClick={() => { onSection(s.id); setDetail(null); }} />)}
       </nav>
 
       <section className="research-main">
         {section === 'trends' && <Trends api={api} onOpen={open} selected={detail} />}
         {section === 'reports' && <Reports api={api} onOpen={open} selected={detail} />}
         {section === 'knowledge' && <Knowledge api={api} onOpen={open} selected={detail} />}
+        {section === 'memory' && <MemoryView api={api} projects={projects} projectId={projectId} onProjectId={onProjectId} />}
         {section === 'compare' && <CompareOptions api={api} />}
         {section === 'feed' && <Feed api={api} onOpen={open} />}
         {section === 'sources' && <Sources api={api} />}
@@ -317,10 +325,23 @@ function Knowledge({ api, onOpen, selected }: { api: SysteraApiClient; onOpen: (
   const res = useAsync(
     submitted ? () => api.searchKnowledge({ query: submitted, include_stale: stale, primary_only: primary, limit: 25 }) : null,
     `k:${submitted}:${stale}:${primary}`, 'knowledge search');
+  const [adding, setAdding] = useState(false);
+  const [flash, setFlash] = useState<string | null>(null);
 
   return (
     <>
-      <Head title="Knowledge search" sub="Hybrid keyword and vector search over the knowledge agents may cite. Content is shown as untrusted text." />
+      <Head title="Knowledge search" sub="Hybrid keyword and vector search over the knowledge agents may cite. Content is shown as untrusted text.">
+        {!adding && <button type="button" className="btn btn-primary" onClick={() => { setAdding(true); setFlash(null); }}>Add document</button>}
+      </Head>
+      {adding && (
+        <AddDocumentForm api={api} onCancel={() => setAdding(false)} onDone={(doc, created) => {
+          setAdding(false);
+          setFlash(created ? `Added “${doc.title}” (v${doc.version_number}). It is searchable now.` : `“${doc.title}” already exists with identical content, so nothing new was stored.`);
+          onOpen({ kind: 'doc', id: doc.id });
+          if (submitted) res.reload();
+        }} />
+      )}
+      {flash && <div className="cf-banner">{flash}</div>}
       <form className="search-form" onSubmit={(e) => { e.preventDefault(); setSubmitted(q.trim()); }}>
         <input className="search-input big" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. event sourcing, rate limiting, postgres partitioning" />
         <button type="submit" className="btn btn-primary" disabled={!q.trim()}>Search</button>
@@ -377,6 +398,8 @@ function DocumentPanel({ api, id }: { api: SysteraApiClient; id: string }) {
       {d.superseded_by && <div className="cf-banner">Superseded by a newer version ({shortId(d.superseded_by)}).</div>}
       <dl className="kv">{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
       {d.source_url && <a className="btn btn-secondary" href={d.source_url} target="_blank" rel="noreferrer noopener">Open source</a>}
+      {d.status === 'CONFLICTED' && <div className="cf-error">Marked as conflicting with other knowledge. Search results show the note.</div>}
+      <ConflictForm api={api} doc={d} onDone={res.reload} />
     </div>
   );
 }

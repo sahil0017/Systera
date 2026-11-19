@@ -305,14 +305,46 @@ export interface KnowledgeDocument {
   updated_at: string;
 }
 
+export type SourceType = 'PRIMARY_DOC' | 'RFC' | 'RELEASE_NOTES' | 'ENGINEERING_BLOG' | 'PAPER' | 'COMMUNITY' | 'INTERNAL';
+export type AccessPolicy = 'PUBLIC' | 'TENANT' | 'RESTRICTED';
+export type MemoryType = 'WORKING' | 'EPISODIC' | 'SEMANTIC' | 'PROJECT';
+
+export interface KnowledgeIngest {
+  canonical_key?: string;
+  title: string;
+  source_url?: string;
+  source_type: SourceType;
+  is_primary_source: boolean;
+  licence?: string;
+  access_policy: AccessPolicy;
+  published_at?: string;
+  maturity: string;
+  confidence_band: 'HIGH' | 'MEDIUM' | 'LOW';
+  raw_content: string;
+  collector?: string;
+}
+
+export interface MemoryInput {
+  memory_type: MemoryType;
+  summary: string;
+  source_refs?: string[];
+  run_id?: string;
+  relevance_score?: number;
+  access_policy?: 'PROJECT' | 'TENANT';
+  expires_at?: string;
+}
+
 export interface MemoryRecord {
   id: string;
   project_id?: string;
   run_id?: string;
-  memory_type: string;
+  memory_type: MemoryType;
   summary: string;
+  content?: Record<string, unknown>;
   source_refs: string[] | null;
   relevance_score: number;
+  access_policy: string;
+  expires_at?: string;
   created_at: string;
 }
 

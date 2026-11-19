@@ -295,7 +295,7 @@ Besides **X-Ray**, **Alternatives** and **Learn** for an opened architecture, th
 | Section | Shows | Backed by |
 | :--- | :--- | :--- |
 | **Websites** | Lens investigations: findings by kind and evidence class, evidence links, fingerprint (build / rebuild), proposed alternatives, live agent-run progress, the knowledge the run used, compare 2–5 sites, open the promoted model in X-Ray | `/v1/websites/*`, `/v1/runs/{id}`, `/v1/runs/{id}/tasks`, `/v1/runs/{id}/knowledge` |
-| **Research** | Engineering Pulse trends (score history and components), validated research reports (findings, sources, validation checks, staleness), knowledge search (conflicts and injection flags shown), the option-comparison guardrail, agent updates / notifications / subscriptions, sources with terms and licence, and run provenance | `/v1/trends*`, `/v1/knowledge/*` |
+| **Research** | Engineering Pulse trends (score history and components), validated research reports (findings, sources, validation checks, staleness), knowledge search (conflicts and injection flags shown) with **Add document** (new versions supersede, identical content is deduplicated) and **Mark a conflict** on workspace documents, **Project memory** (recall by meaning, add distilled project / semantic / episodic / working notes, optionally shared workspace-wide; the 4000-byte limit is enforced before sending), the option-comparison guardrail, agent updates / notifications / subscriptions, sources with terms and licence, and run provenance | `/v1/trends*`, `/v1/knowledge/*`, `/v1/projects/{id}/memory` |
 
 Deep links carry `tab`, `site`, `section` and `run`, and ⌘K jumps to any section.
 

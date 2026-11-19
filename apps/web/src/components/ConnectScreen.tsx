@@ -5,6 +5,8 @@ import type { ProjectSummary } from '../types/xray';
 export type ServerStatus = 'checking' | 'ready' | 'not_ready' | 'unreachable';
 
 interface ConnectScreenProps {
+  /** Context shown above the form, e.g. an expired sign-in or a pending deep link. */
+  notice?: string;
   baseUrl: string;
   onBaseUrlChange: (v: string) => void;
   serverStatus: ServerStatus;
@@ -68,6 +70,7 @@ export function ConnectScreen(p: ConnectScreenProps) {
                 </div>
               </div>
             </div>
+            {p.notice && <div className="connect-notice">{p.notice}</div>}
             {showServer && (
               <label className="field">
                 <span>API base URL</span>

@@ -27,7 +27,7 @@ export function inspectToken(raw: string, now = Date.now()): TokenInfo {
     const c = JSON.parse(b64urlDecode(parts[1])) as { sub?: string; tid?: string; exp?: number; scope?: string };
     const expiresAt = c.exp ? c.exp * 1000 : undefined;
     const minutesLeft = expiresAt ? Math.round((expiresAt - now) / 60000) : undefined;
-    if (expiresAt && expiresAt <= now) return { valid: false, problem: 'This token has expired. Mint a fresh one.', subject: c.sub, expiresAt };
+    if (expiresAt && expiresAt <= now) return { valid: false, problem: 'This token has expired. Paste a fresh one.', subject: c.sub, expiresAt };
     if (c.scope === 'lens') return { valid: false, problem: 'This is an Engineering Lens token; the workspace needs a workspace token.', scope: c.scope };
     return { valid: true, subject: c.sub, tenant: c.tid, expiresAt, minutesLeft, scope: c.scope };
   } catch {
@@ -149,4 +149,49 @@ export function writeLink(s: LinkState) {
   } catch {
     /* non-browser */
   }
+}
+
+// ---- Same-browser handoff between workspace tabs ----
+// A new tab (for example one opened from Engineering Lens) has an empty sessionStorage. It asks
+// other open workspace tabs of this origin for their token over a BroadcastChannel; a connected
+// tab answers only with a valid, unexpired token. Nothing is written to disk.
+
+const CHANNEL = 'systera.session';
+type Msg = { type: 'who-has-token'; id: string } | { type: 'token'; id: string; token: string };
+
+function channel(): BroadcastChannel | null {
+  try {
+    return typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(CHANNEL);
+  } catch {
+    return null;
+  }
+}
+
+/** Answers other tabs while this one holds a valid token. Returns a stop function. */
+export function serveTokenToOtherTabs(getToken: () => string): () => void {
+  const ch = channel();
+  if (!ch) return () => {};
+  ch.onmessage = (e: MessageEvent<Msg>) => {
+    const m = e.data;
+    if (m?.type !== 'who-has-token' || typeof m.id !== 'string') return;
+    const token = getToken();
+    if (token && inspectToken(token).valid) ch.postMessage({ type: 'token', id: m.id, token } satisfies Msg);
+  };
+  return () => ch.close();
+}
+
+/** Asks other open workspace tabs for a token; resolves null when none answers in time. */
+export function askOtherTabsForToken(timeoutMs = 700): Promise<string | null> {
+  const ch = channel();
+  if (!ch) return Promise.resolve(null);
+  const id = Math.random().toString(36).slice(2);
+  return new Promise((resolve) => {
+    const done = (t: string | null) => { globalThis.clearTimeout(timer); ch.close(); resolve(t); };
+    const timer = globalThis.setTimeout(() => done(null), timeoutMs);
+    ch.onmessage = (e: MessageEvent<Msg>) => {
+      const m = e.data;
+      if (m?.type === 'token' && m.id === id && typeof m.token === 'string' && inspectToken(m.token).valid) done(m.token);
+    };
+    ch.postMessage({ type: 'who-has-token', id } satisfies Msg);
+  });
 }

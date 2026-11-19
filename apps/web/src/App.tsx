@@ -16,7 +16,7 @@ import { DEFAULT_CONSTRAINT_WEIGHTS } from './lib/constraints';
 import { computeInsights } from './lib/insights';
 import { LAYER_BY_ID, XRAY_LAYERS } from './lib/layers';
 import {
-  inspectToken, loadBaseUrl, loadRecents, loadTheme, loadToken, readLink, rememberModel, saveBaseUrl, saveTheme, saveToken,
+  askOtherTabsForToken, inspectToken, loadBaseUrl, serveTokenToOtherTabs, loadRecents, loadTheme, loadToken, readLink, rememberModel, saveBaseUrl, saveTheme, saveToken,
   writeLink, type RecentModel, type Theme,
 } from './lib/session';
 import type {
@@ -26,7 +26,7 @@ import type {
 
 const allLayers = () => new Set(XRAY_LAYERS.map((l) => l.id));
 const TABS: WorkspaceTab[] = ['xray', 'counterfactual', 'learn', 'websites', 'research'];
-const SECTIONS: ResearchSection[] = ['trends', 'reports', 'knowledge', 'compare', 'feed', 'sources', 'provenance'];
+const SECTIONS: ResearchSection[] = ['trends', 'reports', 'knowledge', 'memory', 'compare', 'feed', 'sources', 'provenance'];
 
 export function App() {
   const link = useMemo(() => readLink(), []);
@@ -34,10 +34,17 @@ export function App() {
   const [siteId, setSiteId] = useState(link.site ?? '');
   const [researchSection, setResearchSection] = useState<ResearchSection>(SECTIONS.includes(link.section as ResearchSection) ? (link.section as ResearchSection) : 'trends');
   const [runId, setRunId] = useState(link.run ?? '');
+  const [memoryProjectId, setMemoryProjectId] = useState('');
   const [inspTabReq, setInspTabReq] = useState<{ tab: InspectorTab; seq: number } | undefined>(undefined);
   const [baseUrl, setBaseUrl] = useState(loadBaseUrl);
-  const initialToken = useMemo(loadToken, []);
+  const initialToken = useMemo(() => {
+    const t = loadToken();
+    // A saved token that has expired is useless: drop it instead of showing it as an error.
+    const info = inspectToken(t.token);
+    return { ...t, token: info.expiresAt && !info.valid ? '' : t.token, expiredAt: info.expiresAt && !info.valid ? info.expiresAt : undefined };
+  }, []);
   const [token, setToken] = useState(initialToken.token);
+  const [handoff, setHandoff] = useState<'asking' | 'done'>(initialToken.token ? 'done' : 'asking');
   const [remember, setRemember] = useState(initialToken.remember);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -102,6 +109,24 @@ export function App() {
   useEffect(() => saveBaseUrl(baseUrl), [baseUrl]);
   useEffect(() => saveToken(token, remember), [token, remember]);
 
+  // No usable token in this tab (e.g. opened from Engineering Lens): borrow one from another
+  // open, connected workspace tab in this browser.
+  useEffect(() => {
+    if (handoff !== 'asking') return;
+    let live = true;
+    void askOtherTabsForToken().then((t) => {
+      if (!live) return;
+      if (t) setToken(t);
+      setHandoff('done');
+    });
+    return () => { live = false; };
+  }, [handoff]);
+
+  // While connected, answer other tabs that ask.
+  const tokenRef = useRef(token);
+  tokenRef.current = connected ? token : '';
+  useEffect(() => serveTokenToOtherTabs(() => tokenRef.current), []);
+
   // Server reachability, re-checked when the URL changes.
   useEffect(() => {
     let live = true;
@@ -156,6 +181,8 @@ export function App() {
       const label = name ?? (recents.find((r) => r.modelId === id)?.name || `Model ${id.slice(0, 8)}`);
       setProjectName(label);
       setRecents(rememberModel({ modelId: id, projectId, name: label, openedAt: new Date().toISOString(), nodes: view.total_nodes }));
+      const pid = projectId ?? recents.find((r) => r.modelId === id)?.projectId;
+      if (pid) setMemoryProjectId(pid);
       const nodeToOpen = pendingNode.current;
       pendingNode.current = null;
       if (nodeToOpen && view.layers.some((l) => l.nodes.some((n) => n.id === nodeToOpen))) void selectNode(nodeToOpen, id);
@@ -301,6 +328,7 @@ export function App() {
       ['g:trends', 'Research · Trends', () => { setResearchSection('trends'); setTab('research'); }],
       ['g:reports', 'Research · Reports', () => { setResearchSection('reports'); setTab('research'); }],
       ['g:knowledge', 'Research · Knowledge search', () => { setResearchSection('knowledge'); setTab('research'); }],
+      ['g:memory', 'Research · Project memory', () => { setResearchSection('memory'); setTab('research'); }],
       ['g:compare', 'Research · Compare technology options', () => { setResearchSection('compare'); setTab('research'); }],
       ['g:feed', 'Research · Agent updates', () => { setResearchSection('feed'); setTab('research'); }],
       ['g:sources', 'Research · Sources', () => { setResearchSection('sources'); setTab('research'); }],
@@ -332,6 +360,14 @@ export function App() {
     return items;
   }, [baseView, connected, generateAlternatives, runDrillDown, selectNode, selectedNodeId, setTab]);
 
+  const connectNotice = handoff === 'asking'
+    ? 'Looking for a signed-in workspace tab…'
+    : !connected && !tokenInfo.valid
+      ? [
+          initialToken.expiredAt && !token ? `Your saved sign-in expired ${new Date(initialToken.expiredAt).toLocaleString()}. Paste a fresh token to continue.` : '',
+          link.model ? 'The architecture you opened will load as soon as you connect.' : '',
+        ].filter(Boolean).join(' ')
+      : '';
   const showConnect = !connected || picking || (MODEL_TABS.includes(tab) && !baseView);
 
   return (
@@ -358,6 +394,7 @@ export function App() {
 
       {showConnect ? (
         <ConnectScreen
+          notice={connectNotice}
           baseUrl={baseUrl}
           onBaseUrlChange={setBaseUrl}
           serverStatus={serverStatus}
@@ -385,7 +422,8 @@ export function App() {
           onOpenRun={(id) => { setRunId(id); setResearchSection('provenance'); setTab('research'); }}
         />
       ) : tab === 'research' ? (
-        <ResearchView api={api} section={researchSection} onSection={setResearchSection} runId={runId} onRunId={setRunId} />
+        <ResearchView api={api} section={researchSection} onSection={setResearchSection} runId={runId} onRunId={setRunId}
+          projects={projects} projectId={memoryProjectId} onProjectId={setMemoryProjectId} />
       ) : tab === 'learn' ? (
         <LearnOverview
           api={api}

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { openInWorkspace, type TabsApi, type WindowsApi } from "../shared/workspace";
 import { AnalysisMode, Consent, NormalizedObservation, Session, StoredObservation, WebsiteProfile } from "../shared/types";
 import { AuthSession, clearAuthSession, loadAuthSession } from "../auth/session";
 import { LensAPIClient } from "../api/client";
@@ -318,7 +319,7 @@ export function App() {
   };
 
   const workspaceUrl = (p: WebsiteProfile) => (auth && p.model_id ? `${auth.apiBaseUrl}/?model=${encodeURIComponent(p.model_id)}` : "");
-  const openTab = (url: string) => { if (chrome.tabs?.create) void chrome.tabs.create({ url }); else window.open(url, "_blank"); };
+  const openTab = (url: string) => { void openInWorkspace(url, chrome.tabs as unknown as TabsApi | undefined, chrome.windows as unknown as WindowsApi | undefined); };
 
   const promote = async () => {
     if (!client || !profile) return;

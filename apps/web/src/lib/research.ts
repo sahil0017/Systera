@@ -150,3 +150,61 @@ function rank(order: string[], k: string) {
 function round1(v: number) {
   return Math.round(v * 10) / 10;
 }
+
+// ---- Write-side forms (knowledge ingest, conflicts, project memory) ----
+
+export const SOURCE_TYPES = ['PRIMARY_DOC', 'RFC', 'RELEASE_NOTES', 'ENGINEERING_BLOG', 'PAPER', 'COMMUNITY', 'INTERNAL'] as const;
+export const MEMORY_TYPES = [
+  { id: 'PROJECT', label: 'Project', hint: 'Lasting facts and decisions about this project' },
+  { id: 'SEMANTIC', label: 'Semantic', hint: 'General lessons that apply beyond one run' },
+  { id: 'EPISODIC', label: 'Episodic', hint: 'What happened in a specific run or session' },
+  { id: 'WORKING', label: 'Working', hint: 'Short-lived context; give it an expiry' },
+] as const;
+
+/** Mirrors the backend limit (memory.MaxSummaryChars), which counts UTF-8 bytes. */
+export const MAX_MEMORY_SUMMARY_BYTES = 4000;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (s: string) => UUID_RE.test(s.trim());
+
+export function utf8Bytes(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
+
+/** The key the server derives when none is given: lower-cased title with spaces as dashes. */
+export function defaultCanonicalKey(title: string): string {
+  return title.trim().replace(/ /g, '-').toLowerCase();
+}
+
+export function ingestProblems(f: { title: string; raw_content: string; source_url?: string; published_at?: string }): string[] {
+  const out: string[] = [];
+  if (!f.title.trim()) out.push('Add a title.');
+  if (!f.raw_content.trim()) out.push('Paste the document content.');
+  if (f.source_url?.trim() && !/^https?:\/\/\S+$/i.test(f.source_url.trim())) out.push('Source URL must start with http:// or https://.');
+  if (f.published_at && Number.isNaN(Date.parse(f.published_at))) out.push('Published date is not a valid date.');
+  return out;
+}
+
+export function conflictProblems(docId: string, otherId: string, note: string): string[] {
+  const out: string[] = [];
+  if (!isUuid(otherId)) out.push('Choose the conflicting document (or paste its id).');
+  else if (otherId.trim().toLowerCase() === docId.toLowerCase()) out.push('A document cannot conflict with itself.');
+  if (!note.trim()) out.push('Explain what the two documents disagree on.');
+  return out;
+}
+
+export function memoryProblems(f: { summary: string; run_id?: string; source_refs?: string; relevance?: number; memory_type: string; expires_at?: string }): string[] {
+  const out: string[] = [];
+  const s = f.summary.trim();
+  if (!s) out.push('Write a short distilled summary.');
+  else if (utf8Bytes(s) > MAX_MEMORY_SUMMARY_BYTES) out.push(`Summary is ${utf8Bytes(s)} bytes; memory stores distilled notes up to ${MAX_MEMORY_SUMMARY_BYTES}, never full transcripts.`);
+  if (f.run_id?.trim() && !isUuid(f.run_id)) out.push('Run id must be a UUID.');
+  if (f.relevance !== undefined && (f.relevance < 0 || f.relevance > 1)) out.push('Relevance must be between 0 and 1.');
+  if (f.memory_type === 'WORKING' && !f.expires_at) out.push('Working memory should expire; pick an expiry.');
+  if (f.expires_at && Date.parse(f.expires_at) <= Date.now()) out.push('Expiry must be in the future.');
+  return out;
+}
+
+export function splitRefs(s: string): string[] {
+  return [...new Set(s.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean))];
+}

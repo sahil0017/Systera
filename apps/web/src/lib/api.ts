@@ -14,7 +14,7 @@ import type {
   XRayView,
 } from '../types/xray';
 import type {
-  DesignRun, EvidenceLink, Facet, KnowledgeDocument, KnowledgeResult, KnowledgeUpdate, LearningOverview, MemoryRecord,
+  DesignRun, EvidenceLink, Facet, KnowledgeDocument, KnowledgeIngest, KnowledgeResult, MemoryInput, KnowledgeUpdate, LearningOverview, MemoryRecord,
   Notification, OptionAssessment, OptionComparison, PulseSource, Report, RunReference, RunTask, Subscription, TopicDetail,
   TrendList, WebsiteComparison, WebsiteFinding, WebsiteFingerprint, WebsiteProfile,
 } from '../types/research';
@@ -36,6 +36,10 @@ export class SysteraApiClient {
   }
 
   private async request<T>(path: string, init?: RequestInit): Promise<T> {
+    return (await this.requestWithStatus<T>(path, init)).body;
+  }
+
+  private async requestWithStatus<T>(path: string, init?: RequestInit): Promise<{ status: number; body: T }> {
     const headers: Record<string, string> = {
       Accept: 'application/json',
       ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
@@ -46,7 +50,7 @@ export class SysteraApiClient {
       const text = await res.text();
       throw new Error(`HTTP ${res.status}: ${text.slice(0, 240)}`);
     }
-    return (await res.json()) as T;
+    return { status: res.status, body: (await res.json()) as T };
   }
 
   /** Unauthenticated readiness probe, used to show whether the server is reachable. */
@@ -198,6 +202,23 @@ export class SysteraApiClient {
 
   getKnowledgeDocument(id: string): Promise<KnowledgeDocument> {
     return this.request<KnowledgeDocument>(`/v1/knowledge/documents/${enc(id)}`);
+  }
+
+  /** Ingest a document; `created` is false when identical content already existed (deduplicated). */
+  async ingestKnowledge(input: KnowledgeIngest): Promise<{ document: KnowledgeDocument; created: boolean }> {
+    const r = await this.requestWithStatus<KnowledgeDocument>('/v1/knowledge/documents', { method: 'POST', body: JSON.stringify(input) });
+    return { document: r.body, created: r.status === 201 };
+  }
+
+  recordKnowledgeConflict(documentId: string, conflictingDocumentId: string, note: string): Promise<{ status: string }> {
+    return this.request<{ status: string }>(`/v1/knowledge/documents/${enc(documentId)}/conflict`, {
+      method: 'POST',
+      body: JSON.stringify({ conflicting_document_id: conflictingDocumentId, note }),
+    });
+  }
+
+  recordMemory(projectId: string, input: MemoryInput): Promise<MemoryRecord> {
+    return this.request<MemoryRecord>(`/v1/projects/${enc(projectId)}/memory`, { method: 'POST', body: JSON.stringify(input) });
   }
 
   async projectMemory(projectId: string, query = ''): Promise<MemoryRecord[]> {
