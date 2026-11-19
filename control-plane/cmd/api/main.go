@@ -33,6 +33,7 @@ import (
 	"github.com/systera/control-plane/internal/projects"
 	"github.com/systera/control-plane/internal/runs"
 	"github.com/systera/control-plane/internal/scheduler"
+	"github.com/systera/control-plane/internal/twin"
 )
 
 func main() {
@@ -173,6 +174,7 @@ func run() error {
 		Patterns:       patternRetriever,
 		Counterfactual: counterfactualStore,
 		Learning:       learningStore,
+		Twins:          twin.NewStore(pool, graphService),
 		WebDir:         cfg.WebDir,
 		Authenticator:  auth.NewAuthenticator(verifier, auth.NewPostgresMemberships(pool)),
 		Readiness: []httpserver.ReadinessCheck{

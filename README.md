@@ -314,3 +314,26 @@ Migration `000020_learning_mode`, package `internal/learning`, routes under `/v1
 | Challenge → revised explanation | `POST .../learning/nodes/{node}/challenges` classifies the concern (alternative, complexity, cost, scale, consistency, reliability, security), answers from that angle, says when the challenger is right and what evidence would settle it. Stored with a per-component revision number; it never changes the graph. |
 
 Lessons are deterministic and traceable; they explain a PROPOSED design and never upgrade its evidence class.
+
+## Stage 4.1 — Architecture Digital Twin (spec §23.4, §26)
+
+Migration `000021_digital_twin`, package `internal/twin`, web workspace **Digital Twin** tab. The twin is a **design-time** model: it turns one graph version plus explicit workload, environment and failure assumptions into an engine-ready model, then validates it. It never reads telemetry; every twin and report is labelled `DESIGN_INTENT`, and every runtime value carries its source — `DECLARED` (on the graph), `ASSUMED` (from the build's assumptions) or `DEFAULT` (filled in by the builder, and listed).
+
+| Route | Behaviour |
+| :--- | :--- |
+| `POST /v1/architecture/{model}/twins` | `{version?, assumptions, dry_run?}`. Builds and validates. `201` for a new build, `200` when the same graph version + assumptions + builder version was already built (deterministic, so the build is its own reproducibility key). `dry_run` validates without recording. |
+| `GET /v1/architecture/{model}/twins` | Builds for the model, newest first (summaries). |
+| `GET /v1/twins/{id}` | One build with its twin and validation report. |
+
+Builds are immutable (no `UPDATE` grant, forced RLS) and emit `architecture.twin.built` through the outbox.
+
+| Dimension | What the twin holds | Checks |
+| :--- | :--- | :--- |
+| Structure | Components, owners, dependencies, boundaries | Orphans (critical → error), dependency cycles (all-sync → error), ownership, live parts depending on deprecated/retired ones |
+| Interfaces | APIs, events, channels; providers, consumers, version and schema refs | API has a provider, channels have producers and consumers, versioned contracts, call protocols |
+| Data | Stores with writers, readers, consistency, retention, replicas | Single writing service, written-and-read, caches have a system of record, declared semantics |
+| Runtime | Units with replicas, per-replica capacity, placement, regions | Placement, single replica on a request path (error under ≥ 99.9 % SLO), regions vs availability/RTO, database redundancy, declared capacity vs stated peak load |
+| Behaviour | Calls with sync mode, timeout, retries, backoff, breaker; request paths from entry points (through APIs to their providers) | Timeouts on sync calls (external → error), retries need a timeout and backoff, nested retry amplification, inner timeouts shorter than outer, sync depth, self-consuming events |
+| Quality attributes | SLOs (availability, p95/p99, RTO/RPO) and what they cover | SLOs defined and attached, request-path coverage, worst-case timeout budget vs latency objective, RTO/RPO stated |
+
+Properties the builder reads: nodes `replicas`, `capacity_rps`, `critical`/`tier`, `region`, `version`, `schema_ref`, `consistency`, `retention`, SLO `availability_pct`, `latency_p99_ms`, `latency_p95_ms`, `rto_minutes`, `rpo_minutes`; call edges (`constraints` or `properties`) `timeout_ms`, `retries`, `backoff`, `circuit_breaker`. Limitations (stated in every report): contracts are referenced, not parsed; async flows end at the publish boundary; the capacity check assumes every service on a path sees the full peak.

@@ -18,6 +18,7 @@ import type {
   Notification, OptionAssessment, OptionComparison, PulseSource, Report, RunReference, RunTask, Subscription, TopicDetail,
   TrendList, WebsiteComparison, WebsiteFinding, WebsiteFingerprint, WebsiteProfile,
 } from '../types/research';
+import type { TwinAssumptions, TwinBuild } from '../types/twin';
 
 const enc = encodeURIComponent;
 
@@ -148,6 +149,25 @@ export class SysteraApiClient {
   getLearningOverview(modelId: string, opts: { version?: string } = {}): Promise<LearningOverview> {
     const qs = new URLSearchParams({ version: opts.version || 'current' });
     return this.request<LearningOverview>(`/v1/architecture/${enc(modelId)}/learning?${qs}`);
+  }
+
+  // ---- Digital Twin (design-time) ----
+  /** Builds and validates a twin. dryRun validates without recording; otherwise created is false when an identical build already existed. */
+  async buildTwin(modelId: string, input: { version?: string; assumptions: TwinAssumptions; dryRun?: boolean }): Promise<{ build: TwinBuild; created: boolean }> {
+    const r = await this.requestWithStatus<TwinBuild>(`/v1/architecture/${enc(modelId)}/twins`, {
+      method: 'POST',
+      body: JSON.stringify({ version: input.version || 'current', assumptions: input.assumptions, ...(input.dryRun ? { dry_run: true } : {}) }),
+    });
+    return { build: r.body, created: r.status === 201 };
+  }
+
+  async listTwins(modelId: string, limit = 20): Promise<TwinBuild[]> {
+    const r = await this.request<{ items: TwinBuild[] | null }>(`/v1/architecture/${enc(modelId)}/twins?limit=${limit}`);
+    return r.items ?? [];
+  }
+
+  getTwin(id: string): Promise<TwinBuild> {
+    return this.request<TwinBuild>(`/v1/twins/${enc(id)}`);
   }
 
   // ---- Engineering Pulse ----

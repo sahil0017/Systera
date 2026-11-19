@@ -83,6 +83,8 @@ type Options struct {
 	Counterfactual CounterfactualService
 	// Learning enables Engineering Learning Mode (lessons, challenges) for architecture models.
 	Learning LearningService
+	// Twins enables the design-time Architecture Digital Twin (build + validation report).
+	Twins TwinService
 	// WebDir, when set, serves the built React/Vite web workspace at /.
 	WebDir string
 
@@ -154,6 +156,9 @@ func (s *Server) registerRoutes() {
 	}
 	if s.opts.Learning != nil {
 		s.registerLearningRoutes()
+	}
+	if s.opts.Twins != nil {
+		s.registerTwinRoutes()
 	}
 	s.registerAuthRoutes()
 	s.registerPulseRoutes()

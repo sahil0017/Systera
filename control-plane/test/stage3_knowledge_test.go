@@ -168,8 +168,10 @@ func TestKnowledgeAndMemoryEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	var noStale, withStale res
-	call(http.MethodPost, "/v1/knowledge/search", e.token, map[string]any{"query": "zebrafoxtrot outbox"}, http.StatusOK, &noStale)
-	call(http.MethodPost, "/v1/knowledge/search", e.token, map[string]any{"query": "zebrafoxtrot outbox", "include_stale": true}, http.StatusOK, &withStale)
+	// Scope to this test's documents: platform-wide (PUBLIC) knowledge left by other runs, much
+	// of it stale, would otherwise fill the result limit once include_stale is set.
+	call(http.MethodPost, "/v1/knowledge/search", e.token, map[string]any{"query": "zebrafoxtrot outbox", "key_prefix": key}, http.StatusOK, &noStale)
+	call(http.MethodPost, "/v1/knowledge/search", e.token, map[string]any{"query": "zebrafoxtrot outbox", "include_stale": true, "key_prefix": key}, http.StatusOK, &withStale)
 	has := func(rs []knowledge.SearchResult, id string) bool {
 		for _, r := range rs {
 			if r.DocumentID == id {

@@ -6,6 +6,7 @@ import { Header, MODEL_TABS, type WorkspaceTab } from './components/Header';
 import { InsightsPanel } from './components/InsightsPanel';
 import { InspectorDrawer, type InspectorTab } from './components/InspectorDrawer';
 import { LearnOverview } from './components/LearnOverview';
+import { TwinView } from './components/TwinView';
 import { LayerSidebar } from './components/LayerSidebar';
 import { ResearchView, type ResearchSection } from './components/ResearchView';
 import { ToastStack, type ToastMessage } from './components/Toast';
@@ -25,7 +26,7 @@ import type {
 } from './types/xray';
 
 const allLayers = () => new Set(XRAY_LAYERS.map((l) => l.id));
-const TABS: WorkspaceTab[] = ['xray', 'counterfactual', 'learn', 'websites', 'research'];
+const TABS: WorkspaceTab[] = ['xray', 'counterfactual', 'twin', 'learn', 'websites', 'research'];
 const SECTIONS: ResearchSection[] = ['trends', 'reports', 'knowledge', 'memory', 'compare', 'feed', 'sources', 'provenance'];
 
 export function App() {
@@ -318,6 +319,7 @@ export function App() {
   }, [baseView, connected, drillDown, paletteOpen, selectedNodeId]);
 
   const activeView = drillDown ?? baseView;
+  const twinNodes = useMemo(() => (baseView?.layers ?? []).flatMap((l) => l.nodes.map((n) => ({ id: n.id, name: n.name, type: n.type }))), [baseView]);
   const insights = useMemo(() => (baseView ? computeInsights(baseView) : null), [baseView]);
 
   const paletteItems = useMemo<PaletteItem[]>(() => {
@@ -334,7 +336,7 @@ export function App() {
       ['g:sources', 'Research · Sources', () => { setResearchSection('sources'); setTab('research'); }],
       ['g:prov', 'Research · Run provenance', () => { setResearchSection('provenance'); setTab('research'); }],
     ];
-    if (baseView) goto.unshift(['g:learn', 'Learn this architecture', () => setTab('learn')]);
+    if (baseView) goto.unshift(['g:learn', 'Learn this architecture', () => setTab('learn')], ['g:twin', 'Digital Twin · validate this architecture', () => setTab('twin')]);
     for (const [id, label, run] of goto) items.push({ id, group: 'Go to', label, run });
     if (!baseView) return items;
     for (const l of baseView.layers) {
@@ -424,6 +426,14 @@ export function App() {
       ) : tab === 'research' ? (
         <ResearchView api={api} section={researchSection} onSection={setResearchSection} runId={runId} onRunId={setRunId}
           projects={projects} projectId={memoryProjectId} onProjectId={setMemoryProjectId} />
+      ) : tab === 'twin' ? (
+        <TwinView
+          api={api}
+          modelId={modelId}
+          version={version}
+          nodes={twinNodes}
+          onOpenNode={(id) => { setTab('xray'); void selectNode(id); }}
+        />
       ) : tab === 'learn' ? (
         <LearnOverview
           api={api}

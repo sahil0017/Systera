@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { Theme, TokenInfo } from '../lib/session';
 import type { GraphVersion } from '../types/xray';
 
-export type WorkspaceTab = 'xray' | 'counterfactual' | 'learn' | 'websites' | 'research';
+export type WorkspaceTab = 'xray' | 'counterfactual' | 'twin' | 'learn' | 'websites' | 'research';
 
-export const MODEL_TABS: WorkspaceTab[] = ['xray', 'counterfactual', 'learn'];
+export const MODEL_TABS: WorkspaceTab[] = ['xray', 'counterfactual', 'twin', 'learn'];
 
 const TAB_LABELS: Record<WorkspaceTab, string> = {
-  xray: 'X-Ray', counterfactual: 'Alternatives', learn: 'Learn', websites: 'Websites', research: 'Research',
+  xray: 'X-Ray', counterfactual: 'Alternatives', twin: 'Digital Twin', learn: 'Learn', websites: 'Websites', research: 'Research',
 };
 
 interface HeaderProps {
