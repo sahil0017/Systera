@@ -1,8 +1,48 @@
 # Systera — Autonomous Engineering Intelligence Platform
 
+<p align="left">
+  <img src="https://img.shields.io/badge/Control%20Plane-Go-00ADD8?style=flat-square&logo=go&logoColor=white" alt="Go" />
+  <img src="https://img.shields.io/badge/Studio-React%20%2B%20TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Lens-Chrome%20MV3-4285F4?style=flat-square&logo=googlechrome&logoColor=white" alt="Chrome Extension" />
+  <img src="https://img.shields.io/badge/State-PostgreSQL%20%2B%20RLS%20%2B%20pgvector-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/Events-NATS%20JetStream-27AAE1?style=flat-square" alt="NATS JetStream" />
+  <img src="https://img.shields.io/badge/Deploy-Docker%20%7C%20Helm%20%7C%20AWS-FF9900?style=flat-square&logo=amazonaws&logoColor=white" alt="AWS & Helm" />
+</p>
+
 A browser-native, multi-agent engineering intelligence platform that investigates products, designs architectures (HLD/LLD), simulates behavior, adversarially reviews designs, compiles implementation artifacts, and continuously curates engineering knowledge.
 
 See [Autonomous_Engineering_Intelligence_Platform_Technical_Architecture_v4.docx](./Autonomous_Engineering_Intelligence_Platform_Technical_Architecture_v4.docx) for the complete V4.0 specification.
+
+## High-Level Architecture
+
+```mermaid
+flowchart LR
+    subgraph Surfaces["Client Surfaces"]
+        Web["Web Workbench & X-Ray Studio<br/>(React + TypeScript)"]
+        Ext["Engineering Lens<br/>(Chrome MV3 Extension)"]
+    end
+
+    subgraph ControlPlane["Go Control Plane & Durable Runtime"]
+        API["API Gateway<br/>(REST + SSE · RS256 · Idempotency)"]
+        Sched["DAG Scheduler<br/>(Outbox Relay · Lease Reclaimer)"]
+        Workers["Specialist Workers<br/>(Agent · Research · Compiler · Sim · Security)"]
+    end
+
+    subgraph DataPlane["Data & Event Plane"]
+        PG[("PostgreSQL + pgvector<br/>(Forced RLS · Transactional Outbox)")]
+        NATS["NATS JetStream"]
+        S3[("MinIO / Object Store")]
+    end
+
+    Web --> API
+    Ext --> API
+    API <--> PG
+    PG --> Sched
+    Sched --> NATS
+    NATS --> Workers
+    Workers <--> PG
+    Workers <--> S3
+```
 
 ## Repository Structure
 
