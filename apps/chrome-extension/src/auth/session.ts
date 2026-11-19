@@ -49,7 +49,10 @@ export function lensTokenProblem(token: string, nowMs = Date.now()): string | nu
 
 export function normalizeApiBase(raw: string): string {
   const u = new URL(raw.trim());
-  if (u.protocol !== "https:" && !(u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1"))) {
+  if (
+    u.protocol !== "https:" &&
+    !(u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "13.201.7.204"))
+  ) {
     throw new Error("The API must use https (http is allowed only for localhost).");
   }
   return u.origin;

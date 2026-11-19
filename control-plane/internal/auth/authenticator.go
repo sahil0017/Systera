@@ -145,6 +145,19 @@ func (p *PostgresMemberships) Resolve(ctx context.Context, subject, tenantID str
 	return pick(list, tenantID)
 }
 
+// DefaultOwner resolves the primary active OWNER membership for background workspace/lens bootstrap.
+func (p *PostgresMemberships) DefaultOwner(ctx context.Context) (subject, tenantID string, err error) {
+	err = p.pool.QueryRow(ctx, `
+		SELECT u.external_sub, m.tenant_id::text
+		FROM users u
+		JOIN tenant_memberships m ON m.user_id = u.id
+		JOIN tenants t ON t.id = m.tenant_id
+		WHERE u.status = 'ACTIVE' AND t.status = 'ACTIVE' AND m.role = 'OWNER'
+		ORDER BY t.created_at ASC
+		LIMIT 1`).Scan(&subject, &tenantID)
+	return subject, tenantID, err
+}
+
 // MemoryMemberships is an in-memory MembershipResolver for tests.
 type MemoryMemberships struct {
 	mu   sync.RWMutex

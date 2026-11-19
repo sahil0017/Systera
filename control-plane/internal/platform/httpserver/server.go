@@ -73,8 +73,12 @@ type Options struct {
 	Memory    MemoryService
 	// Browser enables Engineering Lens sessions, observations, and website intelligence.
 	Browser BrowserService
-	// TokenIssuer enables POST /v1/auth/lens-token (scoped, short-lived extension tokens).
-	TokenIssuer *auth.TokenIssuer
+	// TokenIssuer enables POST /v1/auth/lens-token (scoped, short-lived extension tokens)
+	// and background workspace/lens auto-bootstrap when BootstrapMembers is also set.
+	TokenIssuer      *auth.TokenIssuer
+	BootstrapMembers interface {
+		DefaultOwner(ctx context.Context) (subject, tenantID string, err error)
+	}
 	// Pulse enables the Engineering Pulse read API (/v1/trends, /v1/knowledge/updates...);
 	// Patterns enables design-time pattern retrieval with explanations.
 	Pulse    PulseService
@@ -567,6 +571,13 @@ func (s *Server) authenticated(write bool, h principalHandler) http.Handler {
 // throughout the event and audit model) and mints one otherwise.
 func (s *Server) withCorrelation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key, X-Tenant-ID, X-Correlation-ID")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		corrID := strings.ToLower(r.Header.Get("X-Correlation-ID"))
 		if !ids.Valid(corrID) {
 			corrID = ids.New()

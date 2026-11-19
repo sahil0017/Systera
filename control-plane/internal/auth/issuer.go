@@ -46,3 +46,20 @@ func (t *TokenIssuer) IssueScoped(subject, tenantID, scope string, ttl time.Dura
 	})
 	return tok, exp, err
 }
+
+// IssueWorkspace mints a full workspace token for subject pinned to tenantID.
+func (t *TokenIssuer) IssueWorkspace(subject, tenantID string, ttl time.Duration) (string, time.Time, error) {
+	if subject == "" || tenantID == "" {
+		return "", time.Time{}, errors.New("subject and tenant are required")
+	}
+	if ttl <= 0 || ttl > 24*time.Hour {
+		ttl = time.Hour
+	}
+	now := t.now().UTC()
+	exp := now.Add(ttl)
+	tok, err := SignRS256(t.priv, t.kid, Claims{
+		Issuer: t.issuer, Subject: subject, Audience: Audience{t.audience}, IssuedAt: now.Unix(), NotBefore: now.Unix(),
+		ExpiresAt: exp.Unix(), ID: ids.New(), TenantID: tenantID,
+	})
+	return tok, exp, err
+}

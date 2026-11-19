@@ -111,6 +111,10 @@ func (s *Server) handleListWebsiteEvidence(w http.ResponseWriter, r *http.Reques
 func (s *Server) registerAuthRoutes() {
 	if s.opts.TokenIssuer != nil {
 		s.mux.Handle("POST /v1/auth/lens-token", s.authenticated(false, s.handleIssueLensToken))
+		if s.opts.BootstrapMembers != nil {
+			s.mux.HandleFunc("POST /v1/auth/workspace-bootstrap", s.handleWorkspaceBootstrap)
+			s.mux.HandleFunc("POST /v1/auth/lens-bootstrap", s.handleLensBootstrap)
+		}
 	}
 }
 
@@ -400,4 +404,38 @@ func (s *Server) handleIssueLensToken(w http.ResponseWriter, r *http.Request, p 
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"access_token": tok, "token_type": "Bearer", "scope": auth.ScopeLens,
 		"tenant_id": p.TenantID, "expires_at": exp, "expires_in": int(time.Until(exp).Seconds())})
+}
+
+func (s *Server) handleWorkspaceBootstrap(w http.ResponseWriter, r *http.Request) {
+	sub, tid, err := s.opts.BootstrapMembers.DefaultOwner(r.Context())
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no_default_owner", "no active workspace owner found to bootstrap")
+		return
+	}
+	tok, exp, err := s.opts.TokenIssuer.IssueWorkspace(sub, tid, time.Hour)
+	if err != nil {
+		s.internalError(w, r, "workspace bootstrap", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"access_token": tok, "token_type": "Bearer", "tenant_id": tid,
+		"expires_at": exp, "expires_in": int(time.Until(exp).Seconds()),
+	})
+}
+
+func (s *Server) handleLensBootstrap(w http.ResponseWriter, r *http.Request) {
+	sub, tid, err := s.opts.BootstrapMembers.DefaultOwner(r.Context())
+	if err != nil {
+		writeError(w, http.StatusNotFound, "no_default_owner", "no active workspace owner found to bootstrap")
+		return
+	}
+	tok, exp, err := s.opts.TokenIssuer.IssueScoped(sub, tid, auth.ScopeLens, auth.DefaultLensTokenTTL)
+	if err != nil {
+		s.internalError(w, r, "lens bootstrap", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"access_token": tok, "token_type": "Bearer", "scope": auth.ScopeLens,
+		"tenant_id": tid, "expires_at": exp, "expires_in": int(time.Until(exp).Seconds()),
+	})
 }

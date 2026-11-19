@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { openInWorkspace, pickWorkspaceTab, type TabsApi } from "../src/shared/workspace";
+import { openInWorkspace, pickWorkspaceTab, saveWorkspaceOrigin, workspaceOrigin, type TabsApi } from "../src/shared/workspace";
 
 const target = "https://systera.example.com/?model=abc";
 
@@ -44,4 +44,26 @@ test("prefers the active workspace tab when several are open", () => {
     { id: 6, url: "https://systera.example.com/index.html?model=x", active: true },
   ], target);
   assert.equal(t?.id, 6);
+});
+
+function memStore() {
+  const data: Record<string, unknown> = {};
+  return { data, async get(k: string) { return { [k]: data[k] }; }, async set(v: Record<string, unknown>) { Object.assign(data, v); } };
+}
+
+test("opens the workspace where Lens was paired, not the API origin", async () => {
+  const store = memStore();
+  assert.equal(await workspaceOrigin("http://localhost:8080", store), "http://localhost:8080"); // nothing recorded yet
+  await saveWorkspaceOrigin("http://localhost:8080", "http://localhost:5173/?model=x", store);
+  assert.equal(await workspaceOrigin("http://localhost:8080", store), "http://localhost:5173");
+  // A different API (another server) does not reuse the recorded workspace.
+  assert.equal(await workspaceOrigin("https://systera.example.com", store), "https://systera.example.com");
+});
+
+test("only http(s) origins are recorded", async () => {
+  const store = memStore();
+  await saveWorkspaceOrigin("http://localhost:8080", "chrome-extension://abc/sidepanel.html", store);
+  await saveWorkspaceOrigin("http://localhost:8080", "not a url", store);
+  assert.deepEqual(store.data, {});
+  assert.equal(await workspaceOrigin("http://localhost:8080", store), "http://localhost:8080");
 });

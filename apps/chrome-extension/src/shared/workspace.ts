@@ -15,6 +15,40 @@ export interface WindowsApi {
   update(id: number, p: { focused: boolean }): Promise<unknown>;
 }
 
+// Where the user's workspace actually runs. It is often not the API origin (the Vite dev server
+// on :5173 proxying to :8080, or localhost vs 127.0.0.1), and a tab on another origin shares no
+// session with the signed-in one. Recorded when Lens pairs from a workspace tab; not a secret.
+const WORKSPACE_KEY = "systera_workspace_origin";
+interface WorkspaceRecord { apiBaseUrl: string; origin: string }
+type StorageLike = { get(k: string): Promise<Record<string, unknown>>; set(v: Record<string, unknown>): Promise<void> };
+
+export function httpOrigin(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveWorkspaceOrigin(apiBaseUrl: string, origin: string | null, store?: StorageLike): Promise<void> {
+  const o = httpOrigin(origin ?? undefined);
+  if (!o || !store) return;
+  await store.set({ [WORKSPACE_KEY]: { apiBaseUrl, origin: o } satisfies WorkspaceRecord }).catch(() => {});
+}
+
+/** The origin to open the workspace at for this API: the recorded one for the same API, else the API itself. */
+export async function workspaceOrigin(apiBaseUrl: string, store?: StorageLike): Promise<string> {
+  try {
+    const rec = (await store?.get(WORKSPACE_KEY))?.[WORKSPACE_KEY] as WorkspaceRecord | undefined;
+    if (rec && rec.apiBaseUrl === apiBaseUrl) return httpOrigin(rec.origin) ?? apiBaseUrl;
+  } catch {
+    // fall through
+  }
+  return apiBaseUrl;
+}
+
 /** A tab showing the workspace app itself (not an API response) on the target's origin. */
 export function pickWorkspaceTab(tabs: Tab[], targetUrl: string): Tab | undefined {
   const origin = new URL(targetUrl).origin;

@@ -111,17 +111,36 @@ export function App() {
   useEffect(() => saveToken(token, remember), [token, remember]);
 
   // No usable token in this tab (e.g. opened from Engineering Lens): borrow one from another
-  // open, connected workspace tab in this browser.
+  // open, connected workspace tab in this browser, or auto-bootstrap from the server if enabled.
   useEffect(() => {
     if (handoff !== 'asking') return;
     let live = true;
-    void askOtherTabsForToken().then((t) => {
+    void askOtherTabsForToken().then(async (t) => {
       if (!live) return;
-      if (t) setToken(t);
-      setHandoff('done');
+      if (t) {
+        setToken(t);
+        setHandoff('done');
+        return;
+      }
+      try {
+        const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/auth/workspace-bootstrap`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (live && res.ok) {
+          const data = (await res.json()) as { access_token?: string };
+          if (data.access_token) {
+            setRemember(true);
+            setToken(data.access_token);
+          }
+        }
+      } catch {
+        // manual sign-in screen fallback
+      }
+      if (live) setHandoff('done');
     });
     return () => { live = false; };
-  }, [handoff]);
+  }, [baseUrl, handoff]);
 
   // While connected, answer other tabs that ask.
   const tokenRef = useRef(token);
@@ -367,7 +386,9 @@ export function App() {
     : !connected && !tokenInfo.valid
       ? [
           initialToken.expiredAt && !token ? `Your saved sign-in expired ${new Date(initialToken.expiredAt).toLocaleString()}. Paste a fresh token to continue.` : '',
-          link.model ? 'The architecture you opened will load as soon as you connect.' : '',
+          link.model && !initialToken.expiredAt
+            ? `This tab isn’t signed in, and no signed-in workspace tab is open at ${globalThis.location?.host ?? 'this address'}. Sign in once and the architecture you opened loads right away; tick “Stay signed in on this device” and links from Engineering Lens will open straight in next time.`
+            : link.model ? 'The architecture you opened will load as soon as you connect.' : '',
         ].filter(Boolean).join(' ')
       : '';
   const showConnect = !connected || picking || (MODEL_TABS.includes(tab) && !baseView);

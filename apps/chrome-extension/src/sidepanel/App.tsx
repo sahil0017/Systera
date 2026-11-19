@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { openInWorkspace, type TabsApi, type WindowsApi } from "../shared/workspace";
+import { openInWorkspace, workspaceOrigin, type TabsApi, type WindowsApi } from "../shared/workspace";
 import { AnalysisMode, Consent, NormalizedObservation, Session, StoredObservation, WebsiteProfile } from "../shared/types";
 import { AuthSession, clearAuthSession, loadAuthSession } from "../auth/session";
 import { LensAPIClient } from "../api/client";
@@ -318,7 +318,15 @@ export function App() {
     setPhase("results");
   };
 
-  const workspaceUrl = (p: WebsiteProfile) => (auth && p.model_id ? `${auth.apiBaseUrl}/?model=${encodeURIComponent(p.model_id)}` : "");
+  // Open the workspace where the user is signed in, which may differ from the API origin.
+  const [wsOrigin, setWsOrigin] = useState("");
+  useEffect(() => {
+    if (!auth) return;
+    let live = true;
+    void workspaceOrigin(auth.apiBaseUrl, chrome.storage?.local).then((o) => { if (live) setWsOrigin(o); });
+    return () => { live = false; };
+  }, [auth]);
+  const workspaceUrl = (p: WebsiteProfile) => (auth && p.model_id ? `${wsOrigin || auth.apiBaseUrl}/?model=${encodeURIComponent(p.model_id)}` : "");
   const openTab = (url: string) => { void openInWorkspace(url, chrome.tabs as unknown as TabsApi | undefined, chrome.windows as unknown as WindowsApi | undefined); };
 
   const promote = async () => {

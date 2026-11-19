@@ -1,13 +1,15 @@
 import { exchangeForLensToken } from "../api/client";
 import { AuthSession, decodeClaims, isLensScoped, normalizeApiBase, saveAuthSession } from "./session";
+import { saveWorkspaceOrigin } from "../shared/workspace";
 
 const LAST_API_KEY = "systera_lens_last_api";
 const PAIRING_KEY = "systera_workspace_pairing";
-const DEFAULT_ENDPOINTS = ["http://localhost:8080"];
+const DEFAULT_ENDPOINTS = ["http://13.201.7.204:8080", "http://localhost:8080"];
 
 interface PairingRecord {
   apiBaseUrl?: string;
   token?: string;
+  workspaceOrigin?: string; // the tab the session came from
 }
 
 async function readLocalPairing(): Promise<PairingRecord> {
@@ -37,7 +39,8 @@ async function readActiveWorkspaceTab(): Promise<PairingRecord> {
       target: { tabId: tab.id },
       func: () => ({
         apiBaseUrl: window.localStorage.getItem("systera.apiBaseUrl") || window.location.origin,
-        token: window.localStorage.getItem("systera.apiToken") || "",
+        token: window.sessionStorage.getItem("systera.apiToken") || window.localStorage.getItem("systera.apiToken") || "",
+        workspaceOrigin: window.location.origin,
       }),
     });
     const res = results?.[0]?.result as PairingRecord | undefined;
@@ -75,16 +78,17 @@ export async function autoConfigureSession(
   manualToken?: string,
 ): Promise<AuthSession> {
   // Request host permission synchronously inside the user click gesture before any other await!
-  const preloadOrigin = manualApi?.trim() ? `${normalizeApiBase(manualApi)}/*` : "http://localhost:8080/*";
-  await chrome.permissions?.request?.({ origins: [preloadOrigin] }).catch(() => false);
+  const preloadOrigin = manualApi?.trim() ? `${normalizeApiBase(manualApi)}/*` : "http://13.201.7.204:8080/*";
+  await chrome.permissions?.request?.({ origins: [preloadOrigin, "http://localhost:8080/*"] }).catch(() => false);
 
   const localCfg = await readLocalPairing();
   const tabCfg = !manualToken ? await readActiveWorkspaceTab() : {};
 
+  const savedApi = localCfg.apiBaseUrl && !localCfg.apiBaseUrl.includes("localhost:8080") ? localCfg.apiBaseUrl : undefined;
   const candidateRaw =
     manualApi?.trim() ||
     tabCfg.apiBaseUrl ||
-    localCfg.apiBaseUrl ||
+    savedApi ||
     DEFAULT_ENDPOINTS[0]!;
   const base = normalizeApiBase(candidateRaw);
 
@@ -114,6 +118,8 @@ export async function autoConfigureSession(
   try {
     await chrome.storage?.local?.set?.({ [LAST_API_KEY]: base });
     await chrome.storage?.local?.remove?.(PAIRING_KEY);
+    // Remember where the workspace runs so "Open in workspace" lands in the signed-in origin.
+    if (tabCfg.token && tabCfg.workspaceOrigin) await saveWorkspaceOrigin(base, tabCfg.workspaceOrigin, chrome.storage?.local);
   } catch {
     // non-fatal
   }
