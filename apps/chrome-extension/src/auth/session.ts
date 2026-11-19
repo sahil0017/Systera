@@ -65,6 +65,7 @@ export async function saveAuthSession(apiBaseUrl: string, token: string): Promis
 }
 
 export async function loadAuthSession(): Promise<AuthSession | null> {
+  if (typeof chrome === "undefined" || !chrome.storage?.session) return null;
   const data = await chrome.storage.session.get(SESSION_KEY);
   const sess = data[SESSION_KEY] as AuthSession | undefined;
   if (!sess || Date.now() >= sess.expiresAt - 5000) {

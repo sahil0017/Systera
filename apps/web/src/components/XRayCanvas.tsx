@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LAYER_BY_ID } from '../lib/layers';
 import type { Direction, EvidenceState, XRayDrillDown, XRayEdge, XRayLayerId, XRayNode, XRayView } from '../types/xray';
 
@@ -10,6 +10,7 @@ interface XRayCanvasProps {
   evidenceFilter: 'ALL' | EvidenceState;
   selectedNodeId: string | null;
   onSelectNode: (id: string) => void;
+  onQuickDrillDown: (id: string) => void;
   onChangeDrillDown: (depth: number, direction: Direction) => void;
   onExitDrillDown: () => void;
 }
@@ -17,6 +18,9 @@ interface XRayCanvasProps {
 interface EdgePath {
   id: string;
   d: string;
+  label: string;
+  labelX: number;
+  labelY: number;
   highlighted: boolean;
 }
 
@@ -28,6 +32,7 @@ export function XRayCanvas({
   evidenceFilter,
   selectedNodeId,
   onSelectNode,
+  onQuickDrillDown,
   onChangeDrillDown,
   onExitDrillDown,
 }: XRayCanvasProps) {
@@ -35,6 +40,27 @@ export function XRayCanvas({
   const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [svgSize, setSvgSize] = useState({ width: 0, height: 0 });
   const [edgePaths, setEdgePaths] = useState<EdgePath[]>([]);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+
+  const focusNodeId = hoveredNodeId ?? selectedNodeId;
+
+  const allEdges = useMemo<XRayEdge[]>(() => {
+    const out: XRayEdge[] = [...view.cross_layer_edges];
+    for (const g of view.layers) {
+      for (const e of g.edges) out.push(e);
+    }
+    return out;
+  }, [view]);
+
+  const connectedToFocus = useMemo(() => {
+    if (!focusNodeId) return null;
+    const set = new Set<string>([focusNodeId]);
+    for (const e of allEdges) {
+      if (e.source_node_id === focusNodeId) set.add(e.target_node_id);
+      if (e.target_node_id === focusNodeId) set.add(e.source_node_id);
+    }
+    return set;
+  }, [allEdges, focusNodeId]);
 
   const matchesFilter = useCallback(
     (n: XRayNode) => {
@@ -66,28 +92,27 @@ export function XRayCanvas({
       });
     });
 
-    const allEdges: XRayEdge[] = [...view.cross_layer_edges];
-    for (const g of view.layers) {
-      for (const e of g.edges) allEdges.push(e);
-    }
-
     const nextPaths: EdgePath[] = [];
     for (const e of allEdges) {
       const a = positions.get(e.source_node_id);
       const b = positions.get(e.target_node_id);
       if (!a || !b) continue;
       const midY = (a.cy + b.cy) / 2;
+      const highlighted = Boolean(
+        focusNodeId && (e.source_node_id === focusNodeId || e.target_node_id === focusNodeId),
+      );
       nextPaths.push({
         id: e.id,
         d: `M ${a.cx} ${a.cy} C ${a.cx} ${midY}, ${b.cx} ${midY}, ${b.cx} ${b.cy}`,
-        highlighted: Boolean(
-          selectedNodeId && (e.source_node_id === selectedNodeId || e.target_node_id === selectedNodeId),
-        ),
+        label: e.relation_type,
+        labelX: (a.cx + b.cx) / 2,
+        labelY: midY,
+        highlighted,
       });
     }
     setSvgSize({ width: stageRect.width, height: stageRect.height });
     setEdgePaths(nextPaths);
-  }, [selectedNodeId, view]);
+  }, [allEdges, focusNodeId]);
 
   useLayoutEffect(() => {
     recomputeEdges();
@@ -112,7 +137,7 @@ export function XRayCanvas({
       {drillDown && (
         <div className="drilldown-bar">
           <div>
-            <strong>Drill-Down Active:</strong> {drillDown.center_node_id} ({drillDown.center_layer}) ·{' '}
+            <strong>Drill-Down Active:</strong> {drillDown.center_layer.replaceAll('_', ' ')} ·{' '}
             {drillDown.depth} hop{drillDown.depth > 1 ? 's' : ''} ({drillDown.direction})
           </div>
           <div className="drilldown-controls">
@@ -139,7 +164,7 @@ export function XRayCanvas({
               </select>
             </label>
             <button type="button" className="btn btn-secondary" onClick={onExitDrillDown}>
-              Exit Drill-Down
+              Exit Drill-Down (Esc)
             </button>
           </div>
         </div>
@@ -147,14 +172,32 @@ export function XRayCanvas({
 
       <div ref={stageRef} className="xray-stage">
         <svg className="edge-overlay" viewBox={`0 0 ${svgSize.width} ${svgSize.height}`}>
+          <defs>
+            <marker id="arrow-active" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#38bdf8" />
+            </marker>
+          </defs>
           {edgePaths.map((p) => (
-            <path
-              key={p.id}
-              d={p.d}
-              fill="none"
-              stroke={p.highlighted ? '#38bdf8' : 'rgba(148, 163, 184, 0.25)'}
-              strokeWidth={p.highlighted ? 2.2 : 1.1}
-            />
+            <g key={p.id}>
+              <path
+                d={p.d}
+                fill="none"
+                stroke={p.highlighted ? '#38bdf8' : 'rgba(148, 163, 184, 0.2)'}
+                strokeWidth={p.highlighted ? 2.4 : 1}
+                strokeDasharray={p.highlighted ? undefined : 'none'}
+                markerEnd={p.highlighted ? 'url(#arrow-active)' : undefined}
+              />
+              {p.highlighted && (
+                <text
+                  x={p.labelX}
+                  y={p.labelY - 4}
+                  textAnchor="middle"
+                  className="edge-label"
+                >
+                  {p.label}
+                </text>
+              )}
+            </g>
           ))}
         </svg>
 
@@ -182,6 +225,7 @@ export function XRayCanvas({
                     filteredNodes.map((n) => {
                       const isSelected = n.id === selectedNodeId;
                       const isCenter = drillDown?.center_node_id === n.id;
+                      const isDimmed = Boolean(connectedToFocus && !connectedToFocus.has(n.id));
                       return (
                         <div
                           key={n.id}
@@ -189,8 +233,10 @@ export function XRayCanvas({
                             if (el) cardRefs.current.set(n.id, el);
                             else cardRefs.current.delete(n.id);
                           }}
-                          className={`node-card ${isSelected ? 'selected' : ''} ${isCenter ? 'center' : ''}`}
+                          className={`node-card ${isSelected ? 'selected' : ''} ${isCenter ? 'center' : ''} ${isDimmed ? 'dimmed' : ''}`}
                           onClick={() => onSelectNode(n.id)}
+                          onMouseEnter={() => setHoveredNodeId(n.id)}
+                          onMouseLeave={() => setHoveredNodeId(null)}
                         >
                           <div className="node-card-top">
                             <span className="node-type">{n.type}</span>
@@ -198,11 +244,26 @@ export function XRayCanvas({
                           </div>
                           <div className="node-name">{n.name}</div>
                           <div className="node-key">{n.key}</div>
-                          {drillDown && typeof n.depth === 'number' && (
-                            <div className="node-depth">
-                              {n.depth === 0 ? 'Center component' : `${n.depth} hop${n.depth > 1 ? 's' : ''}`}
-                            </div>
-                          )}
+                          <div className="node-footer">
+                            {drillDown && typeof n.depth === 'number' ? (
+                              <span className="node-depth">
+                                {n.depth === 0 ? 'Center' : `${n.depth} hop${n.depth > 1 ? 's' : ''}`}
+                              </span>
+                            ) : (
+                              <span />
+                            )}
+                            <button
+                              type="button"
+                              className="micro-btn"
+                              title="Drill down neighbourhood from this component"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onQuickDrillDown(n.id);
+                              }}
+                            >
+                              Drill ↓
+                            </button>
+                          </div>
                         </div>
                       );
                     })

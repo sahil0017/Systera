@@ -287,3 +287,98 @@ export interface CounterfactualSet {
   };
   decision_id?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Engineering Learning Mode (spec §2.7, §8.5) — GET/POST /v1/architecture/{model}/learning/...
+// ---------------------------------------------------------------------------
+
+export interface LearningExplanation {
+  summary: string;
+  details: string[] | null;
+  basis: string[] | null;
+}
+
+export interface LearningTradeOff {
+  option: string;
+  when_to_choose: string;
+  pros: string;
+  cons: string;
+  source: 'ADR' | 'WEBSITE_ANALYSIS' | 'GUIDE' | string;
+  decision_id?: string;
+}
+
+export interface LearningFailure {
+  scenario: string;
+  severity: string;
+  detection: string;
+  impact: string;
+  recovery: string;
+  source: string;
+}
+
+export interface InterviewQuestion {
+  level: 'FOUNDATIONAL' | 'INTERMEDIATE' | 'ADVANCED';
+  question: string;
+  good_answers_cover: string[];
+}
+
+export interface LearningExercise {
+  title: string;
+  difficulty: string;
+  goal: string;
+  steps: string[];
+  acceptance_criteria: string[];
+}
+
+export interface ResearchLink {
+  provenance_ref: string;
+  topic_key: string;
+  title: string;
+  why: string[] | null;
+  confidence_band: string;
+  maturity: string;
+  status: string;
+  limitations: string[] | null;
+  sources: Array<{ title: string; url: string; source: string; is_primary: boolean }>;
+  adoption_note: string;
+}
+
+export interface RevisedExplanation {
+  concern: string;
+  summary: string;
+  response: string[] | null;
+  when_you_are_right: string;
+  consider_instead: LearningTradeOff[];
+  relevant_failures: string[];
+  evidence_to_decide: string[] | null;
+  design_unchanged: boolean;
+  suggested_next_step: string;
+}
+
+export interface LearningChallenge {
+  id: string;
+  revision: number;
+  text: string;
+  graph_version: number;
+  revised: RevisedExplanation;
+  created_at: string;
+}
+
+export interface Lesson {
+  model_id: string;
+  graph_version: number;
+  node_id: string;
+  node_name: string;
+  node_type: string;
+  evidence_state: string;
+  disclaimer: string;
+  why_it_exists: LearningExplanation;
+  problem_solved: LearningExplanation;
+  alternatives: LearningTradeOff[];
+  failure_scenarios: LearningFailure[];
+  interview_questions: InterviewQuestion[];
+  exercises: LearningExercise[];
+  research: ResearchLink[];
+  research_status: 'FOUND' | 'NONE_FOUND' | 'UNAVAILABLE';
+  challenges: LearningChallenge[];
+}

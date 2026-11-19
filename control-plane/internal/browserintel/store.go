@@ -79,6 +79,13 @@ func (s *Store) CreateSession(ctx context.Context, tenantID string, a Actor, in 
 	if in.MaxPages > MaxPagesPerSession {
 		return Session{}, fmt.Errorf("%w: max_pages is at most %d", ErrInvalidInput, MaxPagesPerSession)
 	}
+	if in.AnalysisMode == ModeQuickScan {
+		// Quick scan is the current page only (§7.6); multi-page needs product map or full design.
+		if len(in.AllowedPages) > 1 {
+			return Session{}, fmt.Errorf("%w: quick_scan covers the current page only; use product_map or full_system_design to select pages", ErrInvalidInput)
+		}
+		in.MaxPages = 1
+	}
 	if in.RetentionDays <= 0 {
 		in.RetentionDays = DefaultRetention
 	}

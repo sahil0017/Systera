@@ -6,6 +6,8 @@ import type {
   CounterfactualSet,
   Direction,
   GraphVersion,
+  LearningChallenge,
+  Lesson,
   ProjectSummary,
   XRayDrillDown,
   XRayLayerId,
@@ -75,6 +77,20 @@ export class SysteraApiClient {
     if (opts.targetLayers && opts.targetLayers.length > 0) qs.set('target_layers', opts.targetLayers.join(','));
     return this.request<XRayDrillDown>(
       `/v1/architecture/${encodeURIComponent(modelId)}/xray/nodes/${encodeURIComponent(nodeId)}/drilldown?${qs}`,
+    );
+  }
+
+  getLesson(modelId: string, nodeId: string, opts: { version?: string } = {}): Promise<Lesson> {
+    const qs = new URLSearchParams({ version: opts.version || 'current' });
+    return this.request<Lesson>(
+      `/v1/architecture/${encodeURIComponent(modelId)}/learning/nodes/${encodeURIComponent(nodeId)}?${qs}`,
+    );
+  }
+
+  challengeLesson(modelId: string, nodeId: string, challenge: string, opts: { version?: string } = {}): Promise<LearningChallenge> {
+    return this.request<LearningChallenge>(
+      `/v1/architecture/${encodeURIComponent(modelId)}/learning/nodes/${encodeURIComponent(nodeId)}/challenges`,
+      { method: 'POST', body: JSON.stringify({ challenge, version: opts.version || 'current' }) },
     );
   }
 

@@ -20,6 +20,7 @@ import (
 	"github.com/systera/control-plane/internal/evidence"
 	"github.com/systera/control-plane/internal/graph"
 	"github.com/systera/control-plane/internal/knowledge"
+	"github.com/systera/control-plane/internal/learning"
 	"github.com/systera/control-plane/internal/memory"
 	"github.com/systera/control-plane/internal/models"
 	"github.com/systera/control-plane/internal/observability"
@@ -147,6 +148,8 @@ func run() error {
 
 	decisionStore := decisions.NewStore(pool)
 	counterfactualStore := counterfactual.NewStore(pool, graphService, decisionStore)
+	patternRetriever := engineeringpulse.NewRetriever(pulseStore, knowledgeStore)
+	learningStore := learning.NewStore(pool, graphService, patternRetriever)
 
 	srv := httpserver.New(httpserver.Options{
 		Logger:         logger,
@@ -167,8 +170,9 @@ func run() error {
 		Browser:        browserStore,
 		TokenIssuer:    tokenIssuer,
 		Pulse:          pulseStore,
-		Patterns:       engineeringpulse.NewRetriever(pulseStore, knowledgeStore),
+		Patterns:       patternRetriever,
 		Counterfactual: counterfactualStore,
+		Learning:       learningStore,
 		WebDir:         cfg.WebDir,
 		Authenticator:  auth.NewAuthenticator(verifier, auth.NewPostgresMemberships(pool)),
 		Readiness: []httpserver.ReadinessCheck{

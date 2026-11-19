@@ -1,4 +1,7 @@
-import { AnalysisMode, Consent, DeletionReport, NormalizedObservation, Session, StoredObservation, WebsiteProfile } from "../shared/types";
+import {
+  AnalysisMode, AnalysisStart, Consent, CounterfactualSet, DeletionReport, Finding, Fingerprint, NormalizedObservation, Session,
+  StoredObservation, WebsiteComparison, WebsiteProfile,
+} from "../shared/types";
 import { AuthSession } from "../auth/session";
 
 export class APIError extends Error {
@@ -7,10 +10,10 @@ export class APIError extends Error {
   }
 }
 
-async function call<T>(base: string, token: string, method: string, path: string, body?: unknown): Promise<T> {
+async function call<T>(base: string, token: string, method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
   const res = await fetch(`${base}${path}`, {
     method,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...extraHeaders },
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "omit",
     cache: "no-store",
@@ -36,6 +39,10 @@ export class LensAPIClient {
 
   private req<T>(method: string, path: string, body?: unknown) {
     return call<T>(this.session.apiBaseUrl, this.session.bearerToken, method, path, body);
+  }
+
+  private reqWithHeaders<T>(method: string, path: string, headers: Record<string, string>) {
+    return call<T>(this.session.apiBaseUrl, this.session.bearerToken, method, path, undefined, headers);
   }
 
   consent() {
@@ -67,6 +74,40 @@ export class LensAPIClient {
 
   promoteToWorkspace(websiteId: string) {
     return this.req<WebsiteProfile>("POST", `/v1/websites/${websiteId}/promote`, {});
+  }
+
+  buildFingerprint(websiteId: string) {
+    return this.req<Record<string, unknown>>("POST", `/v1/websites/${websiteId}/fingerprint`, {});
+  }
+
+  generateAlternatives(websiteId: string) {
+    return this.req<Record<string, unknown>>("POST", `/v1/websites/${websiteId}/alternatives`, {});
+  }
+
+  getFingerprint(websiteId: string) {
+    return this.req<Fingerprint>("GET", `/v1/websites/${websiteId}/fingerprint`);
+  }
+
+  getAlternatives(websiteId: string) {
+    return this.req<CounterfactualSet>("GET", `/v1/websites/${websiteId}/alternatives`);
+  }
+
+  listFindings(websiteId: string, table: "capabilities" | "hypotheses") {
+    return this.req<{ items: Finding[] }>("GET", `/v1/websites/${websiteId}/${table}`);
+  }
+
+  /** Starts the mode's multi-agent analysis run (promotes the investigation first). */
+  startAnalysis(websiteId: string, idempotencyKey: string) {
+    return this.reqWithHeaders<AnalysisStart>("POST", `/v1/websites/${websiteId}/analysis`, { "Idempotency-Key": idempotencyKey });
+  }
+
+  listWebsites() {
+    return this.req<{ items: WebsiteProfile[] }>("GET", "/v1/websites");
+  }
+
+  /** Compares 2-5 of the user's investigations on the shared capability taxonomy (§7.6). */
+  compareWebsites(websiteIds: string[]) {
+    return this.req<WebsiteComparison>("POST", "/v1/websites/compare", { website_ids: websiteIds });
   }
 
   deleteSession(sessionId: string) {

@@ -253,7 +253,7 @@ Migrations `000014_browser_intelligence`, `000015_engineering_lens`; package `in
 | # | Guarantee |
 | :--- | :--- |
 | 3.1 Extension | Side panel (React), service worker, on-demand collector (`dist/content.js`, injected only when you click Scan), DOM sanitizer, collectors (headings, navigation, features, visible text, forms, public metadata, resource timing), API client. Bundled with esbuild. |
-| 3.2 Permissions | Always: `activeTab`, `storage`, `sidePanel`. Optional, requested with an explanation when needed: `scripting` (first scan), the workspace API origin (sign-in), the investigated site's origin (multi-page; removed when the investigation ends). No host permissions or content scripts up front. |
+| 3.2 Permissions | Always: `activeTab`, `storage`, `sidePanel`. Optional, requested with an explanation when needed: `scripting` plus the **scanned site only** (on Scan, inside the click), the workspace API origin (sign-in), the investigated site's origin (multi-page). Site access is removed when the investigation is sent or cancelled. Lens never requests access to all sites; if it cannot see the tab, it asks you to click the toolbar icon on that page instead. No host permissions or content scripts up front. |
 | 3.3 Collection | One exclusion rule for every collector: hidden / aria-hidden / template / editable / `data-private` / personal-data containers (account, profile, billing…) are skipped. Never read: field values, password / hidden / file / payment fields, cookies, storage, history, request bodies, scripts. URLs lose credentials, fragments and secret parameters; resource URLs keep origin + path only. A lint test fails the build if collector code touches `.value`, `document.cookie`, storage, history, the network or `innerHTML`. |
 | 3.4 Consent | Scan → per-item preview (uncheck anything) → consent text from `GET /v1/browser/consent` → send. Cancel discards locally. The session records consent version and time (DB CHECK requires consent). |
 | 3.5 Auth | `POST /v1/auth/lens-token` exchanges a workspace token for an RS256 token with `scope: lens`, `tid` pinned, ≤ 1 h. Scoped tokens are refused if longer-lived, unpinned or carrying unknown scopes, and can only reach `/v1/browser/*` and `/v1/websites*`. The extension keeps only lens tokens, in `chrome.storage.session`. `systera-admin token -scope lens -tenant … -ttl 15m` mints one for development. |
@@ -274,3 +274,32 @@ Migrations `000016_website_intelligence_agents`, `000017_website_agents_wiring`;
 | 4.3 Evidence | Every finding is OBSERVED / INFERRED / PROPOSED. Once promoted, each observation is DIRECT ledger evidence (only a hash and excerpt are stored) and each finding a claim citing exactly its pages (OBSERVED/INFERRED: SUPPORTS, PROPOSED: CONTEXT). Rules, enforced in code and by CHECKs: only capabilities and journeys can be OBSERVED; INFERRED needs cited pages and a rationale; cited pages must belong to the investigation; findings copying instruction-like page text are refused. A finding and its claim stand or fall together. Deleting a page (or the investigation, or retention expiry) revokes its ledger evidence, so dependent claims turn STALE. |
 | 4.4 Passive signals | Technology signals come only from what the page already loaded and the user previewed (resource URLs, public metadata, routes); the package imports no HTTP client. Each signal is INFERRED, quotes its clue (which must appear in a cited observation) and has a confidence; text describing scanning, probing, fuzzing, brute force or exploitation is rejected. |
 | 4.5 Outputs | `website_profiles`, `website_capabilities`, `architecture_hypotheses`, `architecture_evidence` (`GET /v1/websites/{id}`, `/capabilities`, `/hypotheses`, `/evidence`). Baseline findings are regenerated on re-analysis (their claims retracted); agent findings keep their agent, run and task. |
+
+## Stage 3.5 — Analysis modes and Compare websites (spec §7.6, §16.2)
+
+`internal/browserintel` (`agents.go`, `compare.go`), route `POST /v1/websites/compare`; side panel views in `apps/chrome-extension/src/sidepanel/views.tsx`.
+
+| Mode | Collection | Multi-agent plan (`POST /v1/websites/{id}/analysis`) |
+| :--- | :--- | :--- |
+| `quick_scan` | Current page only (`max_pages` forced to 1; selecting pages is refused) | Product Discovery, Technology Signal → Independent Reviewer |
+| `product_map` | Pages you select | + User Journey, Domain Architect |
+| `compare_websites` | Pages you select, then pick other investigations | Same as product map |
+| `full_system_design` | Pages you select | All nine specialists |
+
+The Independent Reviewer always runs last and depends on every other task; the run records `analysis_mode` in its constraints. **Compare websites** compares 2–5 of your own investigations on the shared capability taxonomy (`CapabilityTaxonomy`, `capability-taxonomy/1`), which is also what the baseline profile classifies against: a capability matrix, shared / unique capabilities, agent findings outside the taxonomy, journeys, passive technology signals and pairwise Jaccard similarity, with notes when a site came from a single page. The side panel now has the §16.2 screens: Discovery, X-Ray (fingerprint layers and quality attributes), Alternatives (decision matrix), Full investigation (start the mode's run, proposed HLD / components / data / APIs / infrastructure) and Compare.
+
+## Stage 3.6 — Engineering Learning Mode (spec §2.7, §8.5)
+
+Migration `000020_learning_mode`, package `internal/learning`, routes under `/v1/architecture/{model}/learning`, web workspace **Learn** tab in the component inspector.
+
+| Output | Derived from |
+| :--- | :--- |
+| Why it exists / problem it solves | Per-node-type guide plus this component's responsibilities, dependents, owned data and interfaces |
+| Alternatives & trade-offs | ADR / website-analysis alternatives first (with decision id), then the type guide |
+| Failure walkthroughs | Graph failure modes (threats, SLOs, properties, structural) first — flagged when no mitigation is recorded — then the guide; detection, impact, recovery |
+| Interview questions | Guide questions plus design-derived ones (dependents when it is down, synchronous calls, rejected ADR options), each with what a strong answer covers |
+| Exercises | Guide exercises plus outbox / idempotent consumer / circuit breaker when the component publishes, subscribes or calls an external dependency |
+| Research | Validated Engineering Pulse patterns with why-relevant, sources, limitations; popularity is never a selection criterion |
+| Challenge → revised explanation | `POST .../learning/nodes/{node}/challenges` classifies the concern (alternative, complexity, cost, scale, consistency, reliability, security), answers from that angle, says when the challenger is right and what evidence would settle it. Stored with a per-component revision number; it never changes the graph. |
+
+Lessons are deterministic and traceable; they explain a PROPOSED design and never upgrade its evidence class.

@@ -64,14 +64,34 @@ func (s *Store) Prepare(ctx context.Context, in IngestInput) (Prepared, error) {
 	if in.SourceType == "" {
 		in.SourceType = "PRIMARY_DOC"
 	}
+	switch in.SourceType {
+	case "PRIMARY_DOC", "RFC", "RELEASE_NOTES", "ENGINEERING_BLOG", "PAPER", "COMMUNITY", "INTERNAL":
+	default:
+		return Prepared{}, fmt.Errorf("%w: invalid source_type %q", ErrInvalidInput, in.SourceType)
+	}
 	if in.AccessPolicy == "" {
 		in.AccessPolicy = "TENANT"
+	}
+	switch in.AccessPolicy {
+	case "PUBLIC", "TENANT", "RESTRICTED":
+	default:
+		return Prepared{}, fmt.Errorf("%w: invalid access_policy %q", ErrInvalidInput, in.AccessPolicy)
 	}
 	if in.Maturity == "" {
 		in.Maturity = "MAINSTREAM"
 	}
+	switch in.Maturity {
+	case "EXPERIMENTAL", "EMERGING", "MAINSTREAM", "LEGACY", "DEPRECATED":
+	default:
+		return Prepared{}, fmt.Errorf("%w: invalid maturity %q", ErrInvalidInput, in.Maturity)
+	}
 	if in.ConfidenceBand == "" {
 		in.ConfidenceBand = "MEDIUM"
+	}
+	switch in.ConfidenceBand {
+	case "HIGH", "MEDIUM", "LOW":
+	default:
+		return Prepared{}, fmt.Errorf("%w: invalid confidence_band %q", ErrInvalidInput, in.ConfidenceBand)
 	}
 	if in.Licence == "" {
 		in.Licence = "UNKNOWN"

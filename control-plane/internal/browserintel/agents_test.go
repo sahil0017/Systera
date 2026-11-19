@@ -169,3 +169,39 @@ func TestBaselineFindingsAreValid(t *testing.T) {
 		t.Fatalf("baseline kinds: %v", kinds)
 	}
 }
+
+func TestAnalysisPlanPerMode(t *testing.T) {
+	for mode, want := range map[AnalysisMode]int{ModeQuickScan: 3, ModeProductMap: 5, ModeCompareWebsites: 5, ModeFullSystemDesign: len(WebsiteAgents)} {
+		specs := BuildAnalysisPlanForMode(mode, "sess-1", "web-1", "shop.example.com", []string{"obs-1"})
+		if len(specs) != want {
+			t.Fatalf("%s: %d tasks, want %d", mode, len(specs), want)
+		}
+		order, err := runtime.ValidatePlan(specs, 5.0)
+		if err != nil {
+			t.Fatalf("%s: invalid plan: %v", mode, err)
+		}
+		if order[len(order)-1] != "independent_reviewer" {
+			t.Fatalf("%s: reviewer not last: %v", mode, order)
+		}
+		keys := map[string]bool{}
+		for _, s := range specs {
+			keys[s.Key] = true
+		}
+		for _, s := range specs {
+			for _, d := range s.DependsOn {
+				if !keys[d] {
+					t.Fatalf("%s: %s depends on %s, which is not in the plan", mode, s.Key, d)
+				}
+			}
+			if mode != ModeFullSystemDesign && s.Key == "independent_reviewer" && len(s.DependsOn) != want-1 {
+				t.Fatalf("%s: reviewer depends on %v", mode, s.DependsOn)
+			}
+		}
+	}
+	quick := BuildAnalysisPlanForMode(ModeQuickScan, "s", "w", "d", nil)
+	for _, s := range quick {
+		if s.Key == "database_architect" || s.Key == "user_journey" {
+			t.Fatalf("quick scan must not run %s", s.Key)
+		}
+	}
+}

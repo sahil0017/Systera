@@ -34,6 +34,7 @@ type BrowserService interface {
 	ListEvidenceLinks(ctx context.Context, tenantID string, a bi.Actor, websiteID string) ([]bi.EvidenceLinkRow, error)
 	GetFingerprint(ctx context.Context, tenantID string, a bi.Actor, websiteID string) (bi.ArchitectureFingerprint, error)
 	BuildAndPersistFingerprint(ctx context.Context, tenantID string, a bi.Actor, websiteID string) (bi.ArchitectureFingerprint, error)
+	CompareWebsites(ctx context.Context, tenantID string, a bi.Actor, in bi.CompareInput) (bi.WebsiteComparison, error)
 }
 
 func (s *Server) registerBrowserRoutes() {
@@ -48,6 +49,8 @@ func (s *Server) registerBrowserRoutes() {
 	s.mux.Handle("POST /v1/browser/analyze", s.authenticated(true, s.handleAnalyzeBrowserSession))
 	s.mux.Handle("GET /v1/websites", s.authenticated(false, s.handleListWebsites))
 	s.mux.Handle("GET /v1/websites/{id}", s.authenticated(false, s.handleGetWebsite))
+	// Compare websites (§7.6): read-only, so it needs no write role.
+	s.mux.Handle("POST /v1/websites/compare", s.authenticated(false, s.handleCompareWebsites))
 	s.mux.Handle("GET /v1/websites/{id}/fingerprint", s.authenticated(false, s.handleGetWebsiteFingerprint))
 	s.mux.Handle("POST /v1/websites/{id}/fingerprint", s.authenticated(true, s.handleBuildWebsiteFingerprint))
 	s.mux.Handle("GET /v1/websites/{id}/alternatives", s.authenticated(false, s.handleGetWebsiteAlternatives))
@@ -255,6 +258,19 @@ func (s *Server) handleListWebsites(w http.ResponseWriter, r *http.Request, p te
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": list})
+}
+
+func (s *Server) handleCompareWebsites(w http.ResponseWriter, r *http.Request, p tenancy.Principal) {
+	var in bi.CompareInput
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	cmp, err := s.opts.Browser.CompareWebsites(r.Context(), p.TenantID, bi.ActorFrom(p), in)
+	if err != nil {
+		s.browserError(w, r, "compare websites", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, cmp)
 }
 
 func (s *Server) handleGetWebsite(w http.ResponseWriter, r *http.Request, p tenancy.Principal) {

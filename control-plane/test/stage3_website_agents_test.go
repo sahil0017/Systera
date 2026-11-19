@@ -61,7 +61,9 @@ func TestWebsiteIntelligenceAgentsEndToEnd(t *testing.T) {
 
 	// ---- An investigation of two pages.
 	var sess bi.Session
-	l.call(http.MethodPost, "/v1/browser/sessions", lens, sessionBody("acme-shop.com", []string{"https://acme-shop.com/", "https://acme-shop.com/cart"}, 2), http.StatusCreated, &sess)
+	body := sessionBody("acme-shop.com", []string{"https://acme-shop.com/", "https://acme-shop.com/cart"}, 2)
+	body["analysis_mode"] = "full_system_design" // every specialist runs (§7.6)
+	l.call(http.MethodPost, "/v1/browser/sessions", lens, body, http.StatusCreated, &sess)
 	var home, cart bi.Observation
 	l.call(http.MethodPost, "/v1/browser/observations", lens, obsBody(sess.ID, "https://acme-shop.com/", func(o map[string]any) {
 		ob := o["observations"].(map[string]any)

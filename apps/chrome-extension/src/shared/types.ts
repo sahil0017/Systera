@@ -73,6 +73,9 @@ export interface WebsiteProfile {
   model_id?: string;
   capabilities: CapabilityFinding[];
   journeys: string[];
+  tech_signals?: CapabilityFinding[];
+  run_id?: string;
+  created_at?: string;
   fingerprint: Record<string, unknown>;
   alternatives: Array<{ name: string; summary: string; strengths: string[]; risks: string[]; best_when: string }>;
   status: string;
@@ -91,6 +94,91 @@ export interface Consent {
   max_pages: number;
   default_retention_days: number;
   max_retention_days: number;
+}
+
+export type EvidenceClass = "OBSERVED" | "INFERRED" | "PROPOSED";
+
+export interface Finding {
+  id: string;
+  kind: string; // CAPABILITY | JOURNEY | TECHNOLOGY_SIGNAL | SYSTEM_DESIGN | DOMAIN | COMPONENT | DATA_ENTITY | API | INFRASTRUCTURE
+  name: string;
+  statement: string;
+  evidence_class: EvidenceClass;
+  confidence: string;
+  rationale: string;
+  observation_ids: string[];
+  source: "BASELINE" | "AGENT";
+  agent_type?: string;
+  clue?: string;
+}
+
+export interface FingerprintElement {
+  node_id: string;
+  name: string;
+  node_type: string;
+  evidence_class: EvidenceClass;
+  confidence: string;
+}
+
+export interface Fingerprint {
+  website_id: string;
+  domain: string;
+  disclaimer: string;
+  layers: Record<string, { layer: string; elements: FingerprintElement[] | null; edges: unknown[] | null }>;
+  quality_attributes: Array<{ attribute: string; target: string; evidence_class: EvidenceClass; confidence: string; rationale: string }> | null;
+}
+
+export interface ConstraintScore {
+  constraint: string;
+  score: number;
+  rating: string;
+  rationale: string;
+}
+
+export interface Alternative {
+  id: string;
+  style: string;
+  name: string;
+  summary: string;
+  when_appropriate: string;
+  pros: string;
+  cons: string;
+  is_recommended: boolean;
+  weighted_score: number;
+  scores: Record<string, ConstraintScore>;
+}
+
+export interface CounterfactualSet {
+  set_id: string;
+  alternatives: Alternative[];
+  decision_matrix: { constraints: string[]; recommended_style: string; recommended_reason: string };
+}
+
+export interface AnalysisStart {
+  website: WebsiteProfile;
+  run: { id: string; state: string };
+  tasks: Array<{ id: string; key: string; agent_type: string; state: string }>;
+}
+
+export interface ComparedSite {
+  website_id: string;
+  domain: string;
+  analysis_mode: AnalysisMode;
+  page_count: number;
+}
+
+export interface WebsiteComparison {
+  taxonomy_version: string;
+  disclaimer: string;
+  sites: ComparedSite[];
+  capabilities: Array<{ key: string; name: string; proposed_component: string; present_on: number; sites: Record<string, { present: boolean; evidence_class?: EvidenceClass; confidence?: string }> }>;
+  shared_capabilities: string[];
+  unique_capabilities: Record<string, string[]>;
+  unmapped_capabilities: Record<string, string[]>;
+  journeys: Record<string, string[]>;
+  technology: Array<{ name: string; sites: Record<string, string> }>;
+  pairs: Array<{ a: string; b: string; capability_similarity: number; shared_capabilities: string[]; shared_technology: string[] }>;
+  notes: string[];
 }
 
 export const COLLECTOR_VERSION = "1.1.0";

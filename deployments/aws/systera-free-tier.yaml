@@ -24,7 +24,7 @@ Parameters:
 
   RDSInstanceClass:
     Type: String
-    Default: db.t4g.micro
+    Default: db.t3.micro
     AllowedValues: [db.t3.micro, db.t4g.micro]
     Description: AWS Free Tier eligible RDS PostgreSQL instance class.
 
@@ -252,6 +252,7 @@ Resources:
 
   PostgresDB:
     Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
     Properties:
       DBInstanceIdentifier: !Sub "${ProjectName}-${Environment}-postgres"
       Engine: postgres

@@ -636,17 +636,29 @@ func (s *Store) StartAnalysis(ctx context.Context, tenantID string, a Actor, web
 	if budgetUSD <= 0 {
 		budgetUSD = 5
 	}
+	sess, err := s.GetSession(ctx, tenantID, a, w.SessionID)
+	if err != nil {
+		return AnalysisStart{}, err
+	}
+	mode := sess.AnalysisMode
+	criteria := []string{
+		"Every finding is labelled OBSERVED, INFERRED or PROPOSED and cites the observations it rests on.",
+		"Technology signals are passive and quote an observed clue.",
+	}
+	switch mode {
+	case ModeFullSystemDesign:
+		criteria = append(criteria, "At least two architecture alternatives with trade-offs.")
+	case ModeProductMap, ModeCompareWebsites:
+		criteria = append(criteria, "User journeys and candidate domains across the selected pages.")
+	}
+	criteria = append(criteria, "An independent review of all findings runs last.")
 	run, created, err := s.runs.CreateIdempotent(ctx, runs.DesignRun{
 		TenantID: tenantID, ProjectID: w.ProjectID, IdempotencyKey: idempotencyKey, CreatedBy: a.UserID, MaxBudgetUSD: budgetUSD,
-		Objective: "Website intelligence analysis of " + w.Domain + " (Engineering Lens investigation " + w.SessionID + ")",
+		Objective: "Website intelligence analysis (" + string(mode) + ") of " + w.Domain + " (Engineering Lens investigation " + w.SessionID + ")",
 		Constraints: map[string]any{"source": "engineering_lens", "website_id": w.ID, "session_id": w.SessionID, "passive_only": true,
+			"analysis_mode":   string(mode),
 			"evidence_labels": "OBSERVED only for what is visible; hidden infrastructure is INFERRED or PROPOSED"},
-		AcceptanceCriteria: []string{
-			"Every finding is labelled OBSERVED, INFERRED or PROPOSED and cites the observations it rests on.",
-			"Technology signals are passive and quote an observed clue.",
-			"At least two architecture alternatives with trade-offs.",
-			"An independent review of all findings runs last.",
-		},
+		AcceptanceCriteria: criteria,
 	})
 	if err != nil {
 		return AnalysisStart{}, err
@@ -655,7 +667,7 @@ func (s *Store) StartAnalysis(ctx context.Context, tenantID string, a Actor, web
 	if !created {
 		return out, nil // replayed request: the plan was submitted the first time
 	}
-	specs := BuildAnalysisPlan(w.SessionID, w.ID, w.Domain, w.SourceObservationIDs)
+	specs := BuildAnalysisPlanForMode(mode, w.SessionID, w.ID, w.Domain, w.SourceObservationIDs)
 	if out.Tasks, err = s.plans.SubmitPlan(ctx, tenantID, run.ID, specs); err != nil {
 		_, _ = s.runs.UpdateState(context.WithoutCancel(ctx), tenantID, run.ID, runs.StateCancelled)
 		return AnalysisStart{}, fmt.Errorf("submit analysis plan: %w", err)

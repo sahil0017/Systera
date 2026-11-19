@@ -81,6 +81,8 @@ type Options struct {
 	Patterns PatternService
 	// Counterfactual enables Architecture Counterfactual alternatives, decision matrices, and diffs.
 	Counterfactual CounterfactualService
+	// Learning enables Engineering Learning Mode (lessons, challenges) for architecture models.
+	Learning LearningService
 	// WebDir, when set, serves the built React/Vite web workspace at /.
 	WebDir string
 
@@ -149,6 +151,9 @@ func (s *Server) registerRoutes() {
 	}
 	if s.opts.Counterfactual != nil {
 		s.registerCounterfactualRoutes()
+	}
+	if s.opts.Learning != nil {
+		s.registerLearningRoutes()
 	}
 	s.registerAuthRoutes()
 	s.registerPulseRoutes()

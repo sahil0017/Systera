@@ -11,9 +11,34 @@ interface CounterfactualViewProps {
   diffLoading: boolean;
   error: string | null;
   onWeightChange: (constraint: ConstraintId, value: number) => void;
+  onApplyPreset: (weights: Record<ConstraintId, number>, label: string) => void;
   onGenerate: () => void;
   onDiff: (fromAltId: string, toAltId: string) => void;
 }
+
+const PRESETS: Array<{ label: string; weights: Record<ConstraintId, number> }> = [
+  {
+    label: 'Startup MVP',
+    weights: {
+      scale: 1, availability: 2, latency: 3, cost: 5,
+      team_size: 4, compliance: 1, operational_maturity: 5, migration_complexity: 5,
+    },
+  },
+  {
+    label: 'Enterprise Scale',
+    weights: {
+      scale: 5, availability: 5, latency: 2, cost: 1,
+      team_size: 4, compliance: 5, operational_maturity: 1, migration_complexity: 1,
+    },
+  },
+  {
+    label: 'Spiky Event-Driven',
+    weights: {
+      scale: 4.5, availability: 5, latency: 3, cost: 2.5,
+      team_size: 3, compliance: 3, operational_maturity: 2.5, migration_complexity: 3.5,
+    },
+  },
+];
 
 export function CounterfactualView({
   modelId,
@@ -24,6 +49,7 @@ export function CounterfactualView({
   diffLoading,
   error,
   onWeightChange,
+  onApplyPreset,
   onGenerate,
   onDiff,
 }: CounterfactualViewProps) {
@@ -34,10 +60,23 @@ export function CounterfactualView({
     <div className="cf-workspace">
       <aside className="sidebar">
         <section className="panel">
+          <h2>Quick Presets</h2>
+          <div className="pill-group" style={{ marginBottom: 14 }}>
+            {PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                className="pill"
+                onClick={() => onApplyPreset(p.weights, p.label)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
           <h2>Constraint Weights (8)</h2>
           <p className="insp-sub" style={{ marginBottom: 12 }}>
-            Set explicit constraint weights and generate materialized alternatives on the Control Plane
-            (each option creates a canonical graph version + ADR).
+            Tune weights and materialize viable architectures as separate graph versions + ADR on the Control Plane.
           </p>
           <div className="weight-list">
             {ALL_CONSTRAINTS.map(({ id, label }) => (
@@ -76,16 +115,17 @@ export function CounterfactualView({
           <div className="empty-state">
             <h3>Connect to an Architecture Model</h3>
             <p>
-              Enter your Bearer token and select a Project or Model ID in the bar above to load or
-              generate counterfactual alternatives via <code>/v1/architecture/&#123;model&#125;/alternatives</code>.
+              Open <strong>Connect API</strong> in the top bar, authenticate with a Bearer token, and load a
+              model to compare and materialize counterfactual designs.
             </p>
           </div>
         ) : !set ? (
           <div className="empty-state">
             <h3>No Counterfactual Alternatives Yet</h3>
             <p>
-              No alternatives have been materialized for model <code>{modelId}</code> yet. Adjust the
-              8 constraint weights on the left and click <strong>Generate Alternatives &amp; ADR</strong>.
+              Pick a preset or tune the 8 constraint weights on the left, then click{' '}
+              <strong>Generate Alternatives &amp; ADR</strong> to materialize Modular Monolith, Domain
+              Microservices, and Event-Driven Hybrid as distinct graph versions.
             </p>
           </div>
         ) : (
@@ -110,6 +150,9 @@ export function CounterfactualView({
                   </div>
                   <h3>{alt.name}</h3>
                   <div className="cf-score">{alt.weighted_score.toFixed(2)} / 5.00</div>
+                  <div className="score-bar-track">
+                    <div className="score-bar-fill" style={{ width: `${(alt.weighted_score / 5) * 100}%` }} />
+                  </div>
                   <p className="insp-sub">{alt.summary}</p>
                   <div className="cf-when">
                     <strong>When appropriate:</strong> {alt.when_appropriate}
@@ -145,8 +188,8 @@ export function CounterfactualView({
                         const isBest = row.best_style === a.style;
                         return (
                           <td key={a.style} className={isBest ? 'best-cell' : ''}>
-                            <div>
-                              <strong>{cell.score.toFixed(1)}</strong>{' '}
+                            <div className="cell-score-head">
+                              <strong>{cell.score.toFixed(1)}</strong>
                               <span
                                 className={`badge ev-${
                                   cell.rating === 'HIGH'
@@ -159,6 +202,9 @@ export function CounterfactualView({
                                 {cell.rating}
                               </span>
                             </div>
+                            <div className="score-bar-track small">
+                              <div className="score-bar-fill" style={{ width: `${(cell.score / 5) * 100}%` }} />
+                            </div>
                             <div className="insp-sub">{cell.rationale}</div>
                           </td>
                         );
@@ -169,7 +215,6 @@ export function CounterfactualView({
               </table>
             </div>
 
-            {/* 7.4: Live Graph Version Diff between Alternatives */}
             <div className="cf-diff-panel">
               <div className="cf-diff-controls">
                 <strong>Compare Alternatives (Canonical Graph Version Diff):</strong>
@@ -210,12 +255,12 @@ export function CounterfactualView({
                     · Weighted score delta: {diffResult.weighted_delta >= 0 ? '+' : ''}
                     {diffResult.weighted_delta.toFixed(2)}
                   </div>
-                  <div className="insp-sub">
-                    Nodes: +{diffResult.graph_diff.nodes.added.length} added, -
-                    {diffResult.graph_diff.nodes.removed.length} removed, ~
-                    {diffResult.graph_diff.nodes.modified.length} modified · Edges: +
-                    {diffResult.graph_diff.edges.added.length} added, -
-                    {diffResult.graph_diff.edges.removed.length} removed
+                  <div className="diff-chips">
+                    <span className="badge ev-OBSERVED">+{diffResult.graph_diff.nodes.added.length} nodes</span>
+                    <span className="badge sev-HIGH">-{diffResult.graph_diff.nodes.removed.length} nodes</span>
+                    <span className="badge ev-INFERRED">~{diffResult.graph_diff.nodes.modified.length} modified</span>
+                    <span className="badge ev-OBSERVED">+{diffResult.graph_diff.edges.added.length} edges</span>
+                    <span className="badge sev-HIGH">-{diffResult.graph_diff.edges.removed.length} edges</span>
                   </div>
                 </div>
               )}

@@ -1,42 +1,122 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnalysisMode, Consent, DeletionReport, NormalizedObservation, Session, StoredObservation, WebsiteProfile } from "../shared/types";
-import { AuthSession, clearAuthSession, decodeClaims, isLensScoped, loadAuthSession, normalizeApiBase, saveAuthSession } from "../auth/session";
-import { LensAPIClient, exchangeForLensToken } from "../api/client";
+import { AuthSession, clearAuthSession, decodeClaims, isLensScoped, loadAuthSession, normalizeApiBase } from "../auth/session";
+import { autoConfigureSession } from "../auth/autoconfig";
+import { LensAPIClient } from "../api/client";
 import { applyRedactions, payloadBytes, previewItems } from "../shared/redaction";
 import { boundSelection, candidatePages } from "../shared/pages";
 import { EXPLAIN_SCRIPTING, ensureOrigin, ensureScripting, explainApi, explainOrigin, revokeOrigin } from "../shared/permissions";
 import { collectFromTab, collectPages } from "../lens/collect";
+import { AlternativesView, CompareView, DiscoveryView, InvestigationView, VIEWS, ViewKey, XRayView } from "./views";
 
-const MULTI_PAGE: AnalysisMode[] = ["product_map", "full_system_design"];
+const MULTI_PAGE: AnalysisMode[] = ["product_map", "full_system_design", "compare_websites"];
+
+function Stepper({ current }: { current: 1 | 2 | 3 }) {
+  const steps = [
+    { n: 1, label: "1. Connect" },
+    { n: 2, label: "2. Scan & Preview" },
+    { n: 3, label: "3. Findings" },
+  ] as const;
+  return (
+    <div className="stepper" aria-label="Onboarding progress">
+      {steps.map((s) => (
+        <div key={s.n} className={`step-chip ${current === s.n ? "active" : current > s.n ? "done" : ""}`}>
+          {current > s.n ? "✓ " : ""}{s.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function inspectTokenHint(raw: string): { kind: "valid" | "warn" | "idle"; text: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { kind: "idle", text: "" };
+  try {
+    const claims = decodeClaims(trimmed);
+    if (!claims) {
+      return { kind: "warn", text: "Token does not look like a valid JWT (expected 3 dot-separated segments)." };
+    }
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (claims.exp && claims.exp <= nowSec) {
+      return { kind: "warn", text: "This token is expired. Mint a fresh token before signing in." };
+    }
+    const mins = claims.exp ? Math.max(1, Math.round((claims.exp - nowSec) / 60)) : 60;
+    if (isLensScoped(claims)) {
+      return { kind: "valid", text: `Lens-scoped token detected (~${mins}m remaining). Ready to connect.` };
+    }
+    return { kind: "valid", text: `Workspace token detected (~${mins}m). Will auto-exchange once for a scoped Lens token.` };
+  } catch {
+    return { kind: "warn", text: "Token does not look like a valid JWT (expected 3 dot-separated segments)." };
+  }
+}
 
 function SignIn({ onSignedIn }: { onSignedIn: (s: AuthSession) => void }) {
-  const [api, setApi] = useState("https://");
+  const [api, setApi] = useState("");
   const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function submit() {
+
+  const tokenHint = useMemo(() => inspectTokenHint(token), [token]);
+
+  async function connectAuto() {
     setError("");
+    setBusy(true);
     try {
-      const base = normalizeApiBase(api);
-      if (!(await chrome.permissions.request({ origins: [`${base}/*`] }))) throw new Error("Lens needs access to your workspace API to send approved previews.");
-      let lens = token.trim();
-      if (!isLensScoped(decodeClaims(lens))) lens = (await exchangeForLensToken(base, lens)).access_token; // workspace token used once, not kept
+      const session = await autoConfigureSession(api || undefined, token || undefined);
       setToken("");
-      onSignedIn(await saveAuthSession(base, lens));
+      onSignedIn(session);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setBusy(false);
     }
   }
+
   return (
     <section>
-      <h2>Sign in</h2>
-      <p className="muted">Paste a lens token, or a workspace token to exchange for one. Only the short-lived lens token (at most one hour, this tenant only, browser-intelligence routes only) is kept, in memory, until the browser closes.</p>
-      <label className="muted">Workspace API</label>
-      <input type="text" value={api} onChange={(e) => setApi(e.target.value)} />
-      <label className="muted">Token</label>
-      <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
-      <p className="muted">{api.startsWith("http") && api.length > 8 ? safe(() => explainApi(normalizeApiBase(api))) : ""}</p>
-      <div className="row"><button className="primary" onClick={submit} disabled={!token}>Sign in</button></div>
+      <h2>Sign in to Systera</h2>
+      <p className="muted">
+        Connect in one click from your active Systera Workspace. Only the short-lived lens token (at most one hour, this tenant only, browser-intelligence routes only) is kept, in memory, until the browser closes.
+      </p>
+
+      <div className="privacy-grid">
+        <div className="privacy-box allow">
+          <strong>Collected on Scan</strong>
+          Visible headings, navigation, form labels, public routes &amp; metadata.
+        </div>
+        <div className="privacy-box deny">
+          <strong>Never Collected</strong>
+          Passwords, cookies, tokens, entered form values, or browsing history.
+        </div>
+      </div>
+
+      <div className="row" style={{ marginTop: 8 }}>
+        <button
+          className="primary"
+          style={{ width: "100%", padding: "8px 12px" }}
+          onClick={connectAuto}
+          disabled={busy || tokenHint.kind === "warn"}
+        >
+          {busy ? "Auto-configuring in background…" : "Sign in"}
+        </button>
+      </div>
       {error && <p className="error">{error}</p>}
+
+      <details style={{ marginTop: 10 }}>
+        <summary className="muted" style={{ fontWeight: 500 }}>Advanced: custom server or token override</summary>
+        <div style={{ marginTop: 8 }}>
+          <label className="field-label">Workspace API (optional override)</label>
+          <input type="text" value={api} onChange={(e) => setApi(e.target.value)} placeholder="Auto-detected from active workspace" />
+          <div className="preset-row">
+            <button type="button" className="preset-chip" onClick={() => setApi("http://localhost:8080")}>Localhost :8080</button>
+            <button type="button" className="preset-chip" onClick={() => setApi("https://")}>HTTPS Workspace</button>
+          </div>
+          <label className="field-label">Token (optional manual override)</label>
+          <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder="Auto-exchanged from workspace" />
+          {tokenHint.text && <div className={`token-hint ${tokenHint.kind}`}>{tokenHint.text}</div>}
+          <p className="muted">{api.startsWith("http") && api.length > 8 ? safe(() => explainApi(normalizeApiBase(api))) : ""}</p>
+        </div>
+      </details>
     </section>
   );
 }
@@ -85,12 +165,32 @@ export function App() {
   const [status, setStatus] = useState("Nothing is collected until you click Scan, and nothing is sent until you agree to the preview.");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [view, setView] = useState<ViewKey>("discovery");
+  // The active tab, kept current so Scan can request access to exactly this site inside the
+  // click gesture (no await before the permission prompt). The URL is only visible while Lens
+  // has access to the tab (activeTab from the toolbar click, or a granted site).
+  const activeTab = useRef<{ id?: number; url?: string }>({});
 
   const client = auth ? new LensAPIClient(auth) : null;
   const maxPages = consent?.max_pages ?? 25;
 
   useEffect(() => {
     loadAuthSession().then(setAuth);
+  }, []);
+  useEffect(() => {
+    const refresh = () =>
+      chrome.tabs?.query?.({ active: true, currentWindow: true })
+        ?.then(([t]) => { activeTab.current = { id: t?.id, url: t?.url }; })
+        .catch(() => {});
+    refresh();
+    const onActivated = () => refresh();
+    const onUpdated = (_id: number, info: { url?: string; status?: string }) => { if (info.url || info.status === "complete") refresh(); };
+    chrome.tabs?.onActivated?.addListener(onActivated);
+    chrome.tabs?.onUpdated?.addListener(onUpdated);
+    return () => {
+      chrome.tabs?.onActivated?.removeListener(onActivated);
+      chrome.tabs?.onUpdated?.removeListener(onUpdated);
+    };
   }, []);
   useEffect(() => {
     if (client) client.consent().then(setConsent).catch((e) => setError(e.message));
@@ -111,11 +211,23 @@ export function App() {
 
   const scan = () =>
     run("Reading the visible structure of this page…", async () => {
-      if (!(await ensureScripting())) throw new Error("Scan cancelled: the collector permission was not granted.");
+      const known = activeTab.current;
+      // First statement: the permission prompt stays inside the click gesture.
+      if (!(await ensureScripting(known.url))) throw new Error("Scan cancelled: the collector permission was not granted.");
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id === undefined) throw new Error("No active tab.");
+      if (tab.url && known.url && new URL(tab.url).origin !== new URL(known.url).origin) {
+        await revokeOrigin(known.url);
+        throw new Error("The tab changed site while asking for permission; click Scan again.");
+      }
       setTabId(tab.id);
-      const obs = await collectFromTab(tab.id);
+      let obs: NormalizedObservation;
+      try {
+        obs = await collectFromTab(tab.id);
+      } catch (e) {
+        if (known.url) await revokeOrigin(known.url);
+        throw e;
+      }
       setPreviews([obs]);
       setRemoved({});
       setSelected([]);
@@ -151,6 +263,7 @@ export function App() {
       setSession(sess);
       for (const o of final) await client.recordObservation(sess.id, o);
       setProfile(await client.analyze(sess.id));
+      setView(mode === "compare_websites" ? "compare" : mode === "full_system_design" ? "investigation" : "discovery");
       setStored((await client.listObservations(sess.id)).items);
       await revokeOrigin(final[0].url);
       setPreviews([]);
@@ -182,34 +295,71 @@ export function App() {
     });
 
   const promote = () =>
-    run("Creating a workspace project…", async () => {
-      if (!client || !profile) return;
+    run("Creating workspace project, 8-layer X-Ray & counterfactual matrix…", async () => {
+      if (!client || !profile || !auth) return;
       const p = await client.promoteToWorkspace(profile.id);
+      await client.buildFingerprint(profile.id).catch(() => {});
+      await client.generateAlternatives(profile.id).catch(() => {});
       setProfile(p);
       setStatus(`Continued in workspace: project ${p.project_id}, architecture model ${p.model_id}.`);
+      if (p.model_id) {
+        const targetUrl = `${auth.apiBaseUrl}/?model=${encodeURIComponent(p.model_id)}`;
+        try {
+          await chrome.tabs?.create?.({ url: targetUrl });
+        } catch {
+          window.open(targetUrl, "_blank");
+        }
+      }
     });
 
-  if (!auth) return <main><h1>Engineering Lens</h1><SignIn onSignedIn={setAuth} /></main>;
+  if (!auth) {
+    return (
+      <main>
+        <div className="header-bar">
+          <div className="brand-row">
+            <span className="brand-dot" />
+            <h1>Engineering Lens</h1>
+          </div>
+        </div>
+        <Stepper current={1} />
+        <SignIn onSignedIn={setAuth} />
+      </main>
+    );
+  }
 
+  const minsLeft = Math.max(1, Math.round((auth.expiresAt - Date.now()) / 60000));
+  const apiHost = safe(() => new URL(auth.apiBaseUrl).host) || auth.apiBaseUrl;
+  const currentStep: 1 | 2 | 3 = profile ? 3 : 2;
   const candidates = previews[0] ? candidatePages(previews[0].url, previews[0].observations.public_routes) : [];
   const bytes = previews.reduce((n, p) => n + payloadBytes(applyRedactions(p, removed[p.url] ?? new Set())), 0);
 
   return (
     <main>
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <h1>Engineering Lens</h1>
-        <button onClick={async () => { await clearAuthSession(); setAuth(null); }}>Sign out</button>
+      <div className="header-bar">
+        <div className="brand-row">
+          <span className="brand-dot" />
+          <h1>Engineering Lens</h1>
+        </div>
+        <div className="row">
+          <span className="session-pill" title={`Connected to ${auth.apiBaseUrl}`}>
+            {apiHost} · {minsLeft}m
+          </span>
+          <button onClick={async () => { await clearAuthSession(); setAuth(null); }}>Sign out</button>
+        </div>
       </div>
+
+      <Stepper current={currentStep} />
       <p className="status">{status}</p>
       {error && <p className="error">{error}</p>}
 
       <section>
         <h2>Scan</h2>
-        <label className="muted">Mode</label>
+        <label className="field-label">Mode</label>
         <select value={mode} onChange={(e) => setMode(e.target.value as AnalysisMode)} disabled={previews.length > 0}>
           <option value="quick_scan">Quick scan (this page)</option>
           <option value="product_map">Product map (pages you choose)</option>
           <option value="full_system_design">Full system design (pages you choose)</option>
+          <option value="compare_websites">Compare websites (then pick other investigations)</option>
         </select>
         <p className="muted">{EXPLAIN_SCRIPTING}</p>
         <div className="row">
@@ -265,10 +415,50 @@ export function App() {
           <strong className="muted">Journeys</strong>
           <ul>{profile.journeys.map((j) => <li key={j}>{j}</li>)}</ul>
           <div className="row">
-            {profile.status === "PROMOTED"
-              ? <span className="muted">In workspace: project {profile.project_id}</span>
-              : <button className="primary" onClick={promote} disabled={busy}>Continue in workspace</button>}
+            {profile.status === "PROMOTED" ? (
+              <>
+                <span className="muted">In workspace: project {profile.project_id}</span>
+                {profile.model_id && (
+                  <a
+                    href={`${auth.apiBaseUrl}/?model=${encodeURIComponent(profile.model_id)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="primary-link"
+                    onClick={(e) => {
+                      if (chrome.tabs?.create) {
+                        e.preventDefault();
+                        void chrome.tabs.create({ url: `${auth.apiBaseUrl}/?model=${encodeURIComponent(profile.model_id!)}` });
+                      }
+                    }}
+                  >
+                    Open in Architecture X-Ray ↗
+                  </a>
+                )}
+              </>
+            ) : (
+              <button className="primary" onClick={promote} disabled={busy}>Continue in workspace</button>
+            )}
           </div>
+        </section>
+      )}
+
+      {profile && client && (
+        <section>
+          <nav className="view-tabs" role="tablist" aria-label="Investigation views">
+            {VIEWS.map((v) => (
+              <button key={v.key} role="tab" aria-selected={view === v.key} className={`view-tab ${view === v.key ? "active" : ""}`} onClick={() => setView(v.key)}>
+                {v.label}
+              </button>
+            ))}
+          </nav>
+          {view === "discovery" && <DiscoveryView client={client} profile={profile} />}
+          {view === "xray" && <XRayView client={client} profile={profile} />}
+          {view === "alternatives" && <AlternativesView client={client} profile={profile} />}
+          {view === "investigation" && (
+            <InvestigationView client={client} profile={profile} busy={busy}
+              onStarted={(p, msg) => { setProfile(p); setStatus(msg); }} />
+          )}
+          {view === "compare" && <CompareView client={client} profile={profile} />}
         </section>
       )}
 

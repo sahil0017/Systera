@@ -8,12 +8,15 @@ interface TopBarProps {
   modelId: string;
   version: string;
   loadedVersion: number | null;
+  nodeCount: number;
+  edgeCount: number;
   projects: ProjectSummary[];
   selectedProjectId: string;
   versions: GraphVersion[];
   activeTab: WorkspaceTab;
   loading: boolean;
-  statusMessage: string;
+  connectOpen: boolean;
+  onToggleConnect: () => void;
   onBaseUrlChange: (val: string) => void;
   onTokenChange: (val: string) => void;
   onModelIdChange: (val: string) => void;
@@ -31,12 +34,15 @@ export function TopBar({
   modelId,
   version,
   loadedVersion,
+  nodeCount,
+  edgeCount,
   projects,
   selectedProjectId,
   versions,
   activeTab,
   loading,
-  statusMessage,
+  connectOpen,
+  onToggleConnect,
   onBaseUrlChange,
   onTokenChange,
   onModelIdChange,
@@ -47,15 +53,17 @@ export function TopBar({
   onTabChange,
   onReset,
 }: TopBarProps) {
+  const connected = loadedVersion !== null;
+
   return (
     <>
       <header className="topbar">
         <div className="brand">
-          <span className="brand-dot" />
+          <span className={`brand-dot ${connected ? 'connected' : ''}`} />
           <h1>
             Systera <span>Architecture Workspace</span>
           </h1>
-          <nav className="tab-nav">
+          <nav className="tab-nav" aria-label="Workspace views">
             <button
               type="button"
               className={`tab-btn ${activeTab === 'xray' ? 'active' : ''}`}
@@ -73,92 +81,105 @@ export function TopBar({
           </nav>
         </div>
 
-        <div className="topbar-meta">
-          {loadedVersion !== null
-            ? `Model: ${modelId} · v${loadedVersion}`
-            : 'Not connected to a model'}
-        </div>
+        <div className="topbar-right">
+          {connected && (
+            <div className="model-pill" title={`Model ID: ${modelId}`}>
+              <span className="pill-dot" />
+              <span>v{loadedVersion}</span>
+              <span className="pill-sep">·</span>
+              <span>{nodeCount} nodes</span>
+              <span className="pill-sep">·</span>
+              <span>{edgeCount} edges</span>
+            </div>
+          )}
 
-        <div className="topbar-actions">
-          <button type="button" className="btn btn-ghost" onClick={onReset}>
-            Reset Filters
-          </button>
-        </div>
-      </header>
-
-      <div className="connect-bar">
-        <label>
-          API Base URL
-          <input
-            type="text"
-            value={baseUrl}
-            onChange={(e) => onBaseUrlChange(e.target.value)}
-            placeholder="Blank uses /v1 Vite proxy"
-          />
-        </label>
-        <label>
-          Bearer Token (JWT)
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => onTokenChange(e.target.value)}
-            placeholder="Paste RS256 Bearer token"
-          />
-        </label>
-        <button type="button" className="btn btn-secondary" disabled={loading} onClick={onFetchProjects}>
-          Fetch Projects
-        </button>
-
-        {projects.length > 0 && (
-          <label>
-            Project
-            <select value={selectedProjectId} onChange={(e) => onSelectProject(e.target.value)}>
-              <option value="">Select project…</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <label>
-          Model ID
-          <input
-            type="text"
-            value={modelId}
-            onChange={(e) => onModelIdChange(e.target.value)}
-            placeholder="Architecture Model UUID"
-          />
-        </label>
-
-        <label>
-          Version
-          {versions.length > 0 ? (
-            <select value={version} onChange={(e) => onVersionChange(e.target.value)}>
-              <option value="current">current</option>
+          {versions.length > 0 && (
+            <select
+              className="version-select"
+              aria-label="Graph version"
+              value={version}
+              onChange={(e) => onVersionChange(e.target.value)}
+            >
+              <option value="current">Latest (current)</option>
               {versions.map((v) => (
                 <option key={v.id} value={String(v.version)}>
                   v{v.version} ({v.node_count} nodes)
                 </option>
               ))}
             </select>
-          ) : (
+          )}
+
+          <button
+            type="button"
+            className={`btn ${connected ? 'btn-secondary' : 'btn-primary'}`}
+            onClick={onToggleConnect}
+          >
+            {connectOpen ? 'Close Connection' : connected ? 'Connection' : 'Connect API'}
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={onReset} title="Reset filters and drill-down (Esc)">
+            Reset
+          </button>
+        </div>
+      </header>
+
+      {connectOpen && (
+        <div className="connect-bar">
+          <label>
+            API Base URL
             <input
               type="text"
-              value={version}
-              onChange={(e) => onVersionChange(e.target.value)}
-              placeholder="current"
+              value={baseUrl}
+              onChange={(e) => onBaseUrlChange(e.target.value)}
+              placeholder="Same origin (/v1)"
             />
-          )}
-        </label>
+          </label>
+          <label>
+            Bearer Token (RS256 JWT)
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => onTokenChange(e.target.value)}
+              placeholder="Paste Bearer token"
+            />
+          </label>
+          <button type="button" className="btn btn-secondary" disabled={loading || !token.trim()} onClick={onFetchProjects}>
+            {loading ? 'Working…' : 'Fetch Projects'}
+          </button>
 
-        <button type="button" className="btn btn-primary" disabled={loading || !modelId.trim()} onClick={onLoadModel}>
-          {loading ? 'Loading…' : 'Load Model'}
-        </button>
-        {statusMessage && <span className="status-text">{statusMessage}</span>}
-      </div>
+          {projects.length > 0 && (
+            <label>
+              Project
+              <select value={selectedProjectId} onChange={(e) => onSelectProject(e.target.value)}>
+                <option value="">Select project…</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label>
+            Model ID
+            <input
+              type="text"
+              value={modelId}
+              onChange={(e) => onModelIdChange(e.target.value)}
+              placeholder="Architecture Model UUID"
+            />
+          </label>
+
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={loading || !modelId.trim()}
+            onClick={onLoadModel}
+          >
+            {loading ? 'Loading…' : 'Load Model'}
+          </button>
+        </div>
+      )}
     </>
   );
 }

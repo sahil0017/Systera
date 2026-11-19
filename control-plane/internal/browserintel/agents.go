@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 
 	"github.com/systera/control-plane/internal/runtime"
 )
@@ -66,4 +67,57 @@ func BuildAnalysisPlan(sessionID, websiteID, domain string, observationIDs []str
 			[]string{"architecture_hypothesis", "database_architect", "api_architect", "infrastructure_agent"},
 			[]string{"run.read", "task.read", CapWebsiteRead, CapWebsiteReview, "graph.read", "decision.read"}, 0.30, 4096, 8),
 	}
+}
+
+// ModeAgents lists which specialists each browser analysis mode runs (§7.6). Quick scan is a
+// capability summary with technology signals; product map and compare websites add user
+// journeys and domains; full system design runs every specialist. The Independent Reviewer
+// always runs last.
+var ModeAgents = map[AnalysisMode][]string{
+	ModeQuickScan:        {"product_discovery", "technology_signal", "independent_reviewer"},
+	ModeProductMap:       {"product_discovery", "technology_signal", "user_journey", "domain_architect", "independent_reviewer"},
+	ModeCompareWebsites:  {"product_discovery", "technology_signal", "user_journey", "domain_architect", "independent_reviewer"},
+	ModeFullSystemDesign: WebsiteAgents,
+}
+
+// BuildAnalysisPlanForMode builds the DAG for one analysis mode: the full plan restricted to
+// the mode's specialists, with the reviewer depending on every other task in it.
+func BuildAnalysisPlanForMode(mode AnalysisMode, sessionID, websiteID, domain string, observationIDs []string) []runtime.TaskSpec {
+	full := BuildAnalysisPlan(sessionID, websiteID, domain, observationIDs)
+	keep, ok := ModeAgents[mode]
+	if !ok || len(keep) == len(WebsiteAgents) {
+		return full
+	}
+	out := make([]runtime.TaskSpec, 0, len(keep))
+	var others []string
+	for _, spec := range full {
+		if !slices.Contains(keep, spec.Key) {
+			continue
+		}
+		spec.Input = mapWith(spec.Input, "analysis_mode", string(mode))
+		if spec.Key == "independent_reviewer" {
+			spec.DependsOn = append([]string{}, others...)
+			spec.Objective = fmt.Sprintf("Independently review every finding for %s (%s): evidence labels, cited pages and passive-only technology signals.", domain, mode)
+		} else {
+			var deps []string
+			for _, d := range spec.DependsOn {
+				if slices.Contains(keep, d) {
+					deps = append(deps, d)
+				}
+			}
+			spec.DependsOn = deps
+			others = append(others, spec.Key)
+		}
+		out = append(out, spec)
+	}
+	return out
+}
+
+func mapWith(m map[string]any, k string, v any) map[string]any {
+	out := make(map[string]any, len(m)+1)
+	for key, val := range m {
+		out[key] = val
+	}
+	out[k] = v
+	return out
 }

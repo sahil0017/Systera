@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CounterfactualView } from './components/CounterfactualView';
 import { InspectorDrawer } from './components/InspectorDrawer';
 import { LayerSidebar } from './components/LayerSidebar';
+import { ToastStack, type ToastMessage } from './components/Toast';
 import { TopBar, type WorkspaceTab } from './components/TopBar';
 import { XRayCanvas } from './components/XRayCanvas';
 import { SysteraApiClient } from './lib/api';
@@ -27,12 +28,18 @@ const STORAGE_KEYS = {
   modelId: 'systera.modelId',
 };
 
+function initialModelId(): string {
+  const fromUrl = new URLSearchParams(window.location.search).get('model');
+  return fromUrl || localStorage.getItem(STORAGE_KEYS.modelId) || '';
+}
+
 export function App() {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('xray');
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem(STORAGE_KEYS.baseUrl) ?? '');
   const [token, setToken] = useState(() => localStorage.getItem(STORAGE_KEYS.token) ?? '');
-  const [modelId, setModelId] = useState(() => localStorage.getItem(STORAGE_KEYS.modelId) ?? '');
+  const [modelId, setModelId] = useState(initialModelId);
   const [version, setVersion] = useState('current');
+  const [connectOpen, setConnectOpen] = useState(() => !(localStorage.getItem(STORAGE_KEYS.token) && initialModelId()));
 
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
@@ -41,7 +48,6 @@ export function App() {
   const [baseView, setBaseView] = useState<XRayView | null>(null);
   const [drillDown, setDrillDown] = useState<XRayDrillDown | null>(null);
   const [loadingModel, setLoadingModel] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
 
   const [visibleLayers, setVisibleLayers] = useState<Set<XRayLayerId>>(
     () => new Set(XRAY_LAYERS.map((l) => l.id)),
@@ -61,6 +67,18 @@ export function App() {
   const [diffResult, setDiffResult] = useState<AlternativeDiff | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
 
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const toastSeq = useRef(1);
+  const autoLoaded = useRef(false);
+
+  const pushToast = useCallback((kind: ToastMessage['kind'], text: string) => {
+    const id = toastSeq.current++;
+    setToasts((prev) => [...prev.slice(-3), { id, kind, text }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3800);
+  }, []);
+
   const api = useMemo(() => new SysteraApiClient({ baseUrl, token }), [baseUrl, token]);
 
   useEffect(() => {
@@ -77,11 +95,10 @@ export function App() {
     async (targetModelId: string, targetVersion: string) => {
       const id = targetModelId.trim();
       if (!id) {
-        setStatusMessage('Model ID is required.');
+        pushToast('error', 'Model ID is required.');
         return;
       }
       setLoadingModel(true);
-      setStatusMessage('Loading architecture model…');
       setCfError(null);
       setDiffResult(null);
       try {
@@ -94,7 +111,8 @@ export function App() {
         setDrillDown(null);
         setSelectedNodeId(null);
         setInspection(null);
-        setStatusMessage(`Loaded v${view.version} (${view.total_nodes} nodes, ${view.total_edges} edges).`);
+        setConnectOpen(false);
+        pushToast('success', `Loaded v${view.version} (${view.total_nodes} nodes, ${view.total_edges} edges)`);
         try {
           const cf = await api.getAlternatives(id);
           setCounterfactualSet(cf);
@@ -102,45 +120,129 @@ export function App() {
           setCounterfactualSet(null);
         }
       } catch (err) {
-        setStatusMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        pushToast('error', err instanceof Error ? err.message : String(err));
       } finally {
         setLoadingModel(false);
       }
     },
-    [api],
+    [api, pushToast],
   );
+
+  // Auto-bootstrap workspace token in background if none saved, then auto-load ?model= or latest project.
+  useEffect(() => {
+    if (autoLoaded.current) return;
+    autoLoaded.current = true;
+    void (async () => {
+      let activeToken = token.trim();
+      if (!activeToken) {
+        try {
+          const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/auth/workspace-bootstrap`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (res.ok) {
+            const data = (await res.json()) as { access_token?: string };
+            if (data.access_token) {
+              activeToken = data.access_token;
+              setToken(activeToken);
+            }
+          }
+        } catch {
+          // manual connect fallback
+        }
+      }
+      if (!activeToken) return;
+
+      const client = new SysteraApiClient({ baseUrl, token: activeToken });
+      let targetModel = modelId.trim();
+      if (!targetModel) {
+        try {
+          const projs = await client.listProjects();
+          setProjects(projs);
+          if (projs[0]) {
+            setSelectedProjectId(projs[0].id);
+            const m = await client.getModelForProject(projs[0].id);
+            targetModel = m.id;
+            setModelId(targetModel);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      if (targetModel) {
+        setLoadingModel(true);
+        try {
+          const [view, vers] = await Promise.all([
+            client.getXRay(targetModel, { version: 'current' }),
+            client.listVersions(targetModel).catch(() => [] as GraphVersion[]),
+          ]);
+          setBaseView(view);
+          setVersions(vers);
+          setConnectOpen(false);
+          pushToast('success', `Loaded v${view.version} (${view.total_nodes} nodes, ${view.total_edges} edges)`);
+          try {
+            const cf = await client.getAlternatives(targetModel);
+            setCounterfactualSet(cf);
+          } catch {
+            setCounterfactualSet(null);
+          }
+        } catch (err) {
+          pushToast('error', err instanceof Error ? err.message : String(err));
+        } finally {
+          setLoadingModel(false);
+        }
+      }
+    })();
+  }, [baseUrl, modelId, pushToast, token]);
+
+  // Keyboard shortcuts: Escape exits drill-down/selection, "/" focuses search.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (e.key === 'Escape') {
+        if (drillDown) setDrillDown(null);
+        else if (selectedNodeId) {
+          setSelectedNodeId(null);
+          setInspection(null);
+        }
+      } else if (e.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
+        e.preventDefault();
+        document.querySelector<HTMLInputElement>('.search-input')?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [drillDown, selectedNodeId]);
 
   const handleFetchProjects = useCallback(async () => {
     setLoadingModel(true);
-    setStatusMessage('Fetching projects…');
     try {
       const list = await api.listProjects();
       setProjects(list);
-      setStatusMessage(`Found ${list.length} project${list.length === 1 ? '' : 's'}.`);
+      pushToast('info', `Found ${list.length} project${list.length === 1 ? '' : 's'}`);
     } catch (err) {
-      setStatusMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      pushToast('error', err instanceof Error ? err.message : String(err));
     } finally {
       setLoadingModel(false);
     }
-  }, [api]);
+  }, [api, pushToast]);
 
   const handleSelectProject = useCallback(
     async (projectId: string) => {
       setSelectedProjectId(projectId);
       if (!projectId) return;
       setLoadingModel(true);
-      setStatusMessage('Resolving project architecture model…');
       try {
         const model = await api.getModelForProject(projectId);
         setModelId(model.id);
         setVersion('current');
         await loadModel(model.id, 'current');
       } catch (err) {
-        setStatusMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        pushToast('error', err instanceof Error ? err.message : String(err));
         setLoadingModel(false);
       }
     },
-    [api, loadModel],
+    [api, loadModel, pushToast],
   );
 
   const selectNode = useCallback(
@@ -168,11 +270,12 @@ export function App() {
         const res = await api.getDrillDown(modelId.trim(), nodeId, { version, depth, direction });
         setDrillDown(res);
         setVisibleLayers(new Set(XRAY_LAYERS.map((l) => l.id)));
+        pushToast('info', `Drill-down active (${depth} hop${depth > 1 ? 's' : ''}, ${direction})`);
       } catch (err) {
-        setStatusMessage(`Drill-down error: ${err instanceof Error ? err.message : String(err)}`);
+        pushToast('error', err instanceof Error ? err.message : String(err));
       }
     },
-    [api, modelId, version],
+    [api, modelId, pushToast, version],
   );
 
   const handleGenerateAlternatives = useCallback(async () => {
@@ -183,15 +286,17 @@ export function App() {
     try {
       const cf = await api.generateAlternatives(modelId.trim(), weights);
       setCounterfactualSet(cf);
-      // Refresh versions list since new graph versions were materialized.
       const vers = await api.listVersions(modelId.trim()).catch(() => versions);
       setVersions(vers);
+      pushToast('success', `Generated ${cf.alternatives.length} alternatives + recorded ADR`);
     } catch (err) {
-      setCfError(err instanceof Error ? err.message : String(err));
+      const msg = err instanceof Error ? err.message : String(err);
+      setCfError(msg);
+      pushToast('error', msg);
     } finally {
       setCfGenerating(false);
     }
-  }, [api, modelId, versions, weights]);
+  }, [api, modelId, pushToast, versions, weights]);
 
   const handleDiffAlternatives = useCallback(
     async (fromId: string, toId: string) => {
@@ -201,13 +306,22 @@ export function App() {
       try {
         const res = await api.diffAlternatives(modelId.trim(), fromId, toId);
         setDiffResult(res);
+        pushToast('info', `Diffed v${res.graph_diff.from_version} → v${res.graph_diff.to_version}`);
       } catch (err) {
         setCfError(err instanceof Error ? err.message : String(err));
       } finally {
         setDiffLoading(false);
       }
     },
-    [api, modelId],
+    [api, modelId, pushToast],
+  );
+
+  const handleCopy = useCallback(
+    (text: string, label: string) => {
+      void navigator.clipboard?.writeText(text);
+      pushToast('info', `Copied ${label}`);
+    },
+    [pushToast],
   );
 
   const activeView = drillDown ?? baseView;
@@ -220,12 +334,15 @@ export function App() {
         modelId={modelId}
         version={version}
         loadedVersion={baseView?.version ?? null}
+        nodeCount={baseView?.total_nodes ?? 0}
+        edgeCount={baseView?.total_edges ?? 0}
         projects={projects}
         selectedProjectId={selectedProjectId}
         versions={versions}
         activeTab={activeTab}
         loading={loadingModel}
-        statusMessage={statusMessage}
+        connectOpen={connectOpen}
+        onToggleConnect={() => setConnectOpen((v) => !v)}
         onBaseUrlChange={setBaseUrl}
         onTokenChange={setToken}
         onModelIdChange={setModelId}
@@ -243,6 +360,7 @@ export function App() {
           setSearch('');
           setEvidenceFilter('ALL');
           setWeights(DEFAULT_CONSTRAINT_WEIGHTS);
+          pushToast('info', 'Reset filters and drill-down');
         }}
       />
 
@@ -276,6 +394,7 @@ export function App() {
               evidenceFilter={evidenceFilter}
               selectedNodeId={selectedNodeId}
               onSelectNode={(id) => void selectNode(id)}
+              onQuickDrillDown={(id) => void runDrillDown(id, 2, 'both')}
               onChangeDrillDown={(d, dir) => {
                 if (drillDown) void runDrillDown(drillDown.center_node_id, d, dir);
               }}
@@ -291,8 +410,7 @@ export function App() {
                   <strong>Load Model</strong>.
                 </p>
                 <p className="insp-sub">
-                  By default, <code>/v1/*</code> requests proxy to <code>http://127.0.0.1:8080</code>{' '}
-                  (configurable via <code>API_URL</code> or the API Base URL field).
+                  Tip: pass <code>?model=&lt;uuid&gt;</code> in the URL to open a specific model directly.
                 </p>
               </div>
             </section>
@@ -304,6 +422,8 @@ export function App() {
             error={inspError}
             onSelectNode={(id) => void selectNode(id)}
             onDrillDown={(id) => void runDrillDown(id, 2, 'both')}
+            onCopy={handleCopy}
+            learning={modelId.trim() ? { api, modelId: modelId.trim(), version } : undefined}
           />
         </main>
       ) : (
@@ -316,10 +436,19 @@ export function App() {
           diffLoading={diffLoading}
           error={cfError}
           onWeightChange={(c, val) => setWeights((prev) => ({ ...prev, [c]: val }))}
+          onApplyPreset={(presetWeights, label) => {
+            setWeights(presetWeights);
+            pushToast('info', `Applied "${label}" constraint weights`);
+          }}
           onGenerate={() => void handleGenerateAlternatives()}
           onDiff={(a, b) => void handleDiffAlternatives(a, b)}
         />
       )}
+
+      <ToastStack
+        toasts={toasts}
+        onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
+      />
     </div>
   );
 }

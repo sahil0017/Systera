@@ -31,3 +31,18 @@ test("collector code never touches values, cookies, storage, history or the netw
     for (const [re, what] of banned) assert.ok(!re.test(code), `${f} uses ${what} (${re})`);
   }
 });
+
+test("Scan requests the collector for the scanned site only, never all sites (§7.2)", async () => {
+  const g = globalThis as Record<string, unknown>;
+  const requests: chrome.permissions.Permissions[] = [];
+  g.chrome = { permissions: { request: async (p: chrome.permissions.Permissions) => { requests.push(p); return true; } } };
+  const { ensureScripting, scanOrigins } = await import("../src/shared/permissions");
+  assert.equal(await ensureScripting("https://shop.example.com/cart?x=1"), true);
+  assert.deepEqual(requests, [{ permissions: ["scripting"], origins: ["https://shop.example.com/*"] }]);
+  for (const bad of [undefined, "chrome://extensions", "file:///etc/passwd", "not a url"]) {
+    await assert.rejects(ensureScripting(bad), /can't see this tab/);
+    assert.deepEqual(scanOrigins(bad), []);
+  }
+  assert.equal(requests.length, 1, "no fallback request for unknown tabs");
+  for (const r of requests) assert.ok(!(r.origins ?? []).some((o) => o.includes("*://") || o === "https://*/*" || o === "http://*/*"));
+});

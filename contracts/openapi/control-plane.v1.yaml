@@ -705,7 +705,7 @@ paths:
 
   /v1/websites/{id}/analysis:
     post:
-      summary: Start the website-intelligence analysis - promotes the investigation if needed, creates a design run and submits the nine-agent DAG (Independent Reviewer last) through the scheduler. Idempotency-Key replays return the same run.
+      summary: Start the website-intelligence analysis - promotes the investigation if needed, creates a design run and submits the specialist DAG for the session's analysis_mode (quick_scan 3 agents, product_map / compare_websites 5, full_system_design all 9; Independent Reviewer always last) through the scheduler. Idempotency-Key replays return the same run.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: Idempotency-Key, in: header, required: false, schema: { type: string } }
@@ -738,6 +738,70 @@ paths:
       responses:
         "200": { description: Evidence links }
         "404": { description: Not found or not yours }
+
+  /v1/websites/compare:
+    post:
+      summary: Compare websites (spec 7.6) - compare 2-5 of your investigations on the shared capability taxonomy (capability matrix, shared / unique / unmapped capabilities, journeys, passive technology signals, pairwise similarity). Read-only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [website_ids]
+              properties:
+                website_ids: { type: array, minItems: 2, maxItems: 5, items: { type: string, format: uuid } }
+      responses:
+        "200": { description: WebsiteComparison }
+        "400": { description: Fewer than 2 or more than 5 distinct ids }
+        "404": { description: An investigation was not found or is not yours }
+
+  /v1/architecture/{model}/learning:
+    get:
+      summary: Engineering Learning Mode overview (spec 2.7) - every component with a one-line role, plus system-level interview questions and exercises
+      parameters:
+        - { name: model, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: version, in: query, required: false, schema: { type: string, default: current } }
+      responses:
+        "200": { description: Learning overview }
+        "404": { description: Model or version not found }
+  /v1/architecture/{model}/learning/nodes/{node}:
+    get:
+      summary: Lesson for one component - why it exists, problem it solves, alternatives and trade-offs, failure walkthroughs, interview questions, exercises, linked Engineering Pulse research and past challenges
+      parameters:
+        - { name: model, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: node, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: version, in: query, required: false, schema: { type: string, default: current } }
+      responses:
+        "200": { description: Lesson }
+        "404": { description: Model, version or node not found }
+  /v1/architecture/{model}/learning/nodes/{node}/challenges:
+    get:
+      summary: Challenges recorded for a component, newest revision first
+      parameters:
+        - { name: model, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: node, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Challenges }
+    post:
+      summary: Challenge the design and receive a revised explanation (classified concern, response, when the challenger is right, alternatives to consider, evidence that would settle it). Never changes the graph.
+      parameters:
+        - { name: model, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: node, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challenge]
+              properties:
+                challenge: { type: string, minLength: 1, maxLength: 2000 }
+                version: { type: string, default: current }
+      responses:
+        "201": { description: Challenge with revised explanation and revision number }
+        "400": { description: Empty or oversized challenge }
+        "404": { description: Model, version or node not found }
 
   /v1/approvals:
     get:

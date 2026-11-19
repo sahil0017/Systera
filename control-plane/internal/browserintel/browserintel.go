@@ -561,24 +561,35 @@ func FrameForAgent(o Observation) string {
 	return b.String()
 }
 
+// TaxonomyEntry is one capability of the shared capability taxonomy (§7.6): every
+// investigation is classified against the same entries, so investigations of different
+// websites are directly comparable.
+type TaxonomyEntry struct {
+	Key      string   `json:"key"`
+	Name     string   `json:"name"`
+	Service  string   `json:"proposed_component"`
+	Keywords []string `json:"-"`
+}
+
+// TaxonomyVersion identifies the capability taxonomy a profile was classified with.
+const TaxonomyVersion = "capability-taxonomy/1"
+
+// CapabilityTaxonomy is the shared capability taxonomy.
+var CapabilityTaxonomy = []TaxonomyEntry{
+	{"search", "Product / Content Search", "Search & Indexing Service", []string{"search"}},
+	{"cart", "Shopping Cart", "Cart Service", []string{"cart", "basket"}},
+	{"checkout", "Checkout & Payments", "Order & Payment Orchestrator", []string{"checkout", "payment"}},
+	{"auth", "User Authentication", "Identity & Session Service", []string{"login", "log in", "sign in", "sign up", "register"}},
+	{"catalogue", "Catalogue Browsing", "Catalogue Service", []string{"catalog", "catalogue", "products", "shop"}},
+	{"notifications", "Subscriptions & Notifications", "Notification Service", []string{"subscribe", "newsletter"}},
+	{"upload", "Content Upload", "Media Storage & Processing", []string{"upload"}},
+	{"pricing", "Plans & Pricing", "Billing Service", []string{"pricing", "plans"}},
+}
+
 // DeriveWebsiteProfile builds an evidence-labelled profile from observations. Observed
 // capabilities cite the observations whose visible text mentions them; the services that
 // would support them are PROPOSED (a hypothesis, not a map of hidden infrastructure).
 func DeriveWebsiteProfile(domain string, obs []Observation) WebsiteProfile {
-	type cap struct {
-		keywords      []string
-		name, service string
-	}
-	catalogue := []cap{
-		{[]string{"search"}, "Product / Content Search", "Search & Indexing Service"},
-		{[]string{"cart", "basket"}, "Shopping Cart", "Cart Service"},
-		{[]string{"checkout", "payment"}, "Checkout & Payments", "Order & Payment Orchestrator"},
-		{[]string{"login", "log in", "sign in", "sign up", "register"}, "User Authentication", "Identity & Session Service"},
-		{[]string{"catalog", "catalogue", "products", "shop"}, "Catalogue Browsing", "Catalogue Service"},
-		{[]string{"subscribe", "newsletter"}, "Subscriptions & Notifications", "Notification Service"},
-		{[]string{"upload"}, "Content Upload", "Media Storage & Processing"},
-		{[]string{"pricing", "plans"}, "Plans & Pricing", "Billing Service"},
-	}
 	pageText := map[string]string{}
 	var ids []string
 	for _, o := range obs {
@@ -599,11 +610,11 @@ func DeriveWebsiteProfile(domain string, obs []Observation) WebsiteProfile {
 
 	var caps []CapabilityFinding
 	found := map[string]bool{}
-	for _, c := range catalogue {
+	for _, c := range CapabilityTaxonomy {
 		var refs []string
 		var hit string
 		for _, id := range ids {
-			for _, kw := range c.keywords {
+			for _, kw := range c.Keywords {
 				if regexp.MustCompile(`[^a-z0-9]` + regexp.QuoteMeta(kw) + `[^a-z0-9]`).MatchString(pageText[id]) {
 					refs = append(refs, "observation:"+id)
 					if hit == "" {
@@ -616,12 +627,12 @@ func DeriveWebsiteProfile(domain string, obs []Observation) WebsiteProfile {
 		if len(refs) == 0 {
 			continue
 		}
-		found[c.name] = true
+		found[c.Name] = true
 		caps = append(caps,
-			CapabilityFinding{Name: c.name, EvidenceClass: "OBSERVED", EvidenceRefs: refs, Confidence: "HIGH",
+			CapabilityFinding{Name: c.Name, EvidenceClass: "OBSERVED", EvidenceRefs: refs, Confidence: "HIGH",
 				Rationale: fmt.Sprintf("Visible page structure on %d page(s) references %q.", len(refs), hit)},
-			CapabilityFinding{Name: c.service, EvidenceClass: "PROPOSED", EvidenceRefs: refs, Confidence: "MEDIUM",
-				Rationale: fmt.Sprintf("Proposed logical component supporting the observed %s capability; not observed directly.", c.name)})
+			CapabilityFinding{Name: c.Service, EvidenceClass: "PROPOSED", EvidenceRefs: refs, Confidence: "MEDIUM",
+				Rationale: fmt.Sprintf("Proposed logical component supporting the observed %s capability; not observed directly.", c.Name)})
 	}
 
 	var journeys []string

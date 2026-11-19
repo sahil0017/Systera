@@ -4,14 +4,22 @@ type Win = typeof globalThis & { __systeraLens?: { collect: () => NormalizedObse
 
 /** Injects the collector into a tab (on demand) and returns its preview observation. */
 export async function collectFromTab(tabId: number): Promise<NormalizedObservation> {
-  await chrome.scripting.executeScript({ target: { tabId }, files: ["dist/content.js"] });
-  const [res] = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => (globalThis as Win).__systeraLens?.collect() ?? null,
-  });
-  const obs = res?.result as NormalizedObservation | null | undefined;
-  if (!obs || !obs.url) throw new Error("This page cannot be scanned (browser pages and the Web Store are off limits).");
-  return obs;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["dist/content.js"] });
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => (globalThis as Win).__systeraLens?.collect() ?? null,
+    });
+    const obs = res?.result as NormalizedObservation | null | undefined;
+    if (!obs || !obs.url) throw new Error("This page cannot be scanned (browser pages and the Web Store are off limits).");
+    return obs;
+  } catch (err) {
+    const msg = (err as Error)?.message ?? String(err);
+    if (/chrome:\/\/|chrome-extension:\/\/|Cannot access contents of url|Cannot access a chrome/i.test(msg)) {
+      throw new Error("Switch to a regular http:// or https:// website tab to scan (Chrome internal pages like chrome://extensions cannot be scanned).");
+    }
+    throw err;
+  }
 }
 
 function waitForLoad(tabId: number, timeoutMs: number): Promise<void> {
