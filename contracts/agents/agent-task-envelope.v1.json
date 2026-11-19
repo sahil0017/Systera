@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://systera.dev/contracts/agents/agent-task-envelope.v1.json",
+  "title": "AgentTaskEnvelope v1.0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "run_id",
+    "tenant_id",
+    "project_id",
+    "agent_type",
+    "objective",
+    "graph_version",
+    "granted_capabilities",
+    "budget",
+    "deadline",
+    "correlation_id"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0" },
+    "task_id": { "type": "string", "format": "uuid" },
+    "run_id": { "type": "string", "format": "uuid" },
+    "tenant_id": { "type": "string", "format": "uuid" },
+    "project_id": { "type": "string", "format": "uuid" },
+    "agent_type": { "type": "string" },
+    "objective": { "type": "string" },
+    "context_refs": { "type": "array", "items": { "type": "string" } },
+    "graph_version": { "type": "integer", "minimum": 0 },
+    "constraints": { "type": "object" },
+    "acceptance_criteria": { "type": "array", "items": { "type": "string" } },
+    "evidence_policy": { "type": "object" },
+    "granted_capabilities": { "type": "array", "items": { "type": "string" } },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "max_tokens": { "type": "integer", "minimum": 1 },
+        "max_cost_usd": { "type": "number", "minimum": 0 },
+        "max_tool_calls": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "deadline": { "type": "string", "format": "date-time" },
+    "correlation_id": { "type": "string", "format": "uuid" }
+  }
+}

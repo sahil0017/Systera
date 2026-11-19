@@ -1,0 +1,12 @@
+DROP INDEX IF EXISTS idx_website_profiles_sources;
+ALTER TABLE website_profiles DROP CONSTRAINT IF EXISTS website_profiles_status_check;
+ALTER TABLE website_profiles ADD CONSTRAINT website_profiles_status_check CHECK (status IN ('DRAFT', 'ANALYZED', 'PROMOTED'));
+ALTER TABLE website_profiles DROP CONSTRAINT IF EXISTS website_profiles_session_key;
+ALTER TABLE website_profiles DROP COLUMN IF EXISTS promoted_at, DROP COLUMN IF EXISTS source_observation_ids;
+ALTER TABLE browser_observations DROP CONSTRAINT IF EXISTS browser_observations_payload_bounded;
+ALTER TABLE browser_observations DROP CONSTRAINT IF EXISTS browser_observations_session_url_key;
+DROP INDEX IF EXISTS idx_browser_sessions_user;
+DROP INDEX IF EXISTS idx_browser_sessions_retention;
+ALTER TABLE browser_sessions DROP CONSTRAINT IF EXISTS browser_sessions_allowed_pages_bounded;
+ALTER TABLE browser_sessions DROP CONSTRAINT IF EXISTS browser_sessions_consent_required;
+ALTER TABLE browser_sessions DROP COLUMN IF EXISTS consented_at, DROP COLUMN IF EXISTS consent_version;

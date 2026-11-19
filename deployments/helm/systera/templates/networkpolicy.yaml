@@ -1,0 +1,19 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "systera.fullname" . }}-api
+  labels:
+    {{- include "systera.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "systera.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.api.port }}
+{{- end }}

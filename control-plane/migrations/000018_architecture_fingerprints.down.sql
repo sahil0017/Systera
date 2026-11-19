@@ -1,0 +1,3 @@
+DROP POLICY IF EXISTS system_all_architecture_fingerprints ON architecture_fingerprints;
+DROP POLICY IF EXISTS tenant_isolation_architecture_fingerprints ON architecture_fingerprints;
+DROP TABLE IF EXISTS architecture_fingerprints;

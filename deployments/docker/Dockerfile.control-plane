@@ -1,0 +1,27 @@
+FROM golang:1.27-alpine AS builder
+
+WORKDIR /src
+COPY control-plane/go.mod control-plane/go.sum ./
+RUN go mod download
+COPY control-plane/ ./
+
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/systera-api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/systera-scheduler ./cmd/scheduler
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/systera-worker-agent ./cmd/worker-agent
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/systera-migrate ./cmd/migrate
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -o /out/systera-admin ./cmd/systera-admin
+
+FROM alpine:3.21
+RUN addgroup -S systera && adduser -S systera -G systera
+USER systera
+WORKDIR /app
+
+COPY --from=builder /out/systera-api /usr/local/bin/systera-api
+COPY --from=builder /out/systera-scheduler /usr/local/bin/systera-scheduler
+COPY --from=builder /out/systera-worker-agent /usr/local/bin/systera-worker-agent
+COPY --from=builder /out/systera-migrate /usr/local/bin/systera-migrate
+COPY --from=builder /out/systera-admin /usr/local/bin/systera-admin
+
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- http://127.0.0.1:8080/readyz >/dev/null || exit 1
+ENTRYPOINT ["/usr/local/bin/systera-api"]

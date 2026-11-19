@@ -1,0 +1,37 @@
+# yaml-language-server: $schema=none
+schema_version: "1.0"
+policy: worker-pool-egress-allowlist
+defaultAction: DENY
+blockedCIDRs:
+  # Prevent SSRF against cloud instance metadata and link-local addresses
+  - 169.254.0.0/16
+  - 127.0.0.0/8
+  - ::1/128
+pools:
+  worker-agent:
+    allowHosts:
+      - api.groq.com:443
+      - openrouter.ai:443
+      - router.huggingface.co:443
+    allowInternalServices:
+      - postgres:5432
+      - nats:4222
+      - redis:6379
+  worker-research:
+    allowPorts: [443]
+    readOnlyHTTPMethods: ["GET", "HEAD"]
+    allowHosts:
+      - api.github.com:443
+      - raw.githubusercontent.com:443
+      - export.arxiv.org:443
+      - hn.algolia.com:443
+  worker-compiler:
+    # Compiler sandboxes run offline by default; no arbitrary internet egress
+    allowHosts: []
+    allowInternalServices:
+      - s3:443
+  worker-simulation:
+    allowHosts: []
+    allowInternalServices:
+      - postgres:5432
+      - s3:443

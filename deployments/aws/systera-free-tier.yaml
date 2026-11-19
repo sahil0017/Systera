@@ -1,0 +1,462 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Systera — Single Consolidated AWS Free Tier CloudFormation Stack.
+  Embeds VPC (zero NAT Gateway), Security Groups, EC2 (t3.micro), RDS PostgreSQL (db.t4g.micro),
+  S3 Artifacts Bucket, ECR Repository, IAM Role/Profile, and CloudWatch Log Group.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: systera
+    Description: Project identifier used for resource naming and tags.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Deployment environment.
+
+  EC2InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues: [t2.micro, t3.micro]
+    Description: AWS Free Tier eligible EC2 instance type.
+
+  RDSInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    AllowedValues: [db.t3.micro, db.t4g.micro]
+    Description: AWS Free Tier eligible RDS PostgreSQL instance class.
+
+  DBName:
+    Type: String
+    Default: systera
+    Description: Initial PostgreSQL database name.
+
+  DBUsername:
+    Type: String
+    Default: systera
+    Description: PostgreSQL master username.
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: PostgreSQL master password (minimum 8 characters).
+
+  AllowedHTTPCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed to access the Control Plane HTTP API (port 8080).
+
+  AllowedSSHCIDR:
+    Type: String
+    Default: ""
+    Description: Optional CIDR block for SSH access (port 22). Leave empty to disable SSH ingress.
+
+  LatestAL2023AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023 AMI ID resolved from AWS SSM Parameter Store.
+
+  AuthJWKSURL:
+    Type: String
+    Default: ""
+    Description: Optional external OIDC/IdP JWKS URL for RS256 token verification.
+
+  AuthIssuer:
+    Type: String
+    Default: systera
+    Description: Expected JWT issuer (iss) claim.
+
+  AuthAudience:
+    Type: String
+    Default: systera-control-plane
+    Description: Expected JWT audience (aud) claim.
+
+  ImageTag:
+    Type: String
+    MinLength: 1
+    AllowedPattern: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
+    Description: >
+      Container image tag in ECR to run on the Control Plane host (e.g. a git SHA or semver).
+      Required: the repository is IMMUTABLE, so a moving tag such as "latest" cannot be updated.
+
+Conditions:
+  EnableSSH: !Not [!Equals [!Ref AllowedSSHCIDR, ""]]
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # 1. VPC & Networking (Zero-NAT-Gateway design for AWS Free Tier)
+  # ---------------------------------------------------------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-vpc"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-igw"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-public-a"
+
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-a"
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-private-b"
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-public-rt"
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  # ---------------------------------------------------------------------------
+  # 2. Security Groups
+  # ---------------------------------------------------------------------------
+  ControlPlaneSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-${Environment}-control-plane-sg"
+      GroupDescription: Security group for Systera Control Plane host
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref AllowedHTTPCIDR
+          Description: Control Plane HTTP REST and SSE API
+        - !If
+          - EnableSSH
+          - IpProtocol: tcp
+            FromPort: 22
+            ToPort: 22
+            CidrIp: !Ref AllowedSSHCIDR
+            Description: Restricted SSH access
+          - !Ref AWS::NoValue
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${ProjectName}-${Environment}-rds-sg"
+      GroupDescription: Allow PostgreSQL access only from the Control Plane host
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ControlPlaneSecurityGroup
+          Description: PostgreSQL from Control Plane
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # ---------------------------------------------------------------------------
+  # 3. Amazon S3 Object Storage (5 GB Standard Free Tier)
+  # ---------------------------------------------------------------------------
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-${Environment}-artifacts-${AWS::AccountId}"
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ---------------------------------------------------------------------------
+  # 4. Amazon ECR Repository (500 MB Private Registry Free Tier)
+  # ---------------------------------------------------------------------------
+  ControlPlaneECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${ProjectName}-${Environment}-control-plane"
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  # ---------------------------------------------------------------------------
+  # 5. Amazon RDS for PostgreSQL 16 (db.t4g.micro, 20 GB gp2, Single-AZ)
+  # ---------------------------------------------------------------------------
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub "${ProjectName}-${Environment}-db-subnets"
+      DBSubnetGroupDescription: Private subnets for Systera PostgreSQL RDS
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+
+  PostgresDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${ProjectName}-${Environment}-postgres"
+      Engine: postgres
+      EngineVersion: "16"
+      DBInstanceClass: !Ref RDSInstanceClass
+      AllocatedStorage: 20
+      StorageType: gp2
+      StorageEncrypted: true
+      DBName: !Ref DBName
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      MultiAZ: false
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 1
+      DeletionProtection: false
+
+  # ---------------------------------------------------------------------------
+  # 6. Amazon CloudWatch Log Group (5 GB Free Tier)
+  # ---------------------------------------------------------------------------
+  ControlPlaneLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/${ProjectName}/${Environment}/control-plane"
+      RetentionInDays: 7
+
+  # ---------------------------------------------------------------------------
+  # 7. IAM Role & EC2 Control Plane Host (t3.micro, 750 hrs/month Free Tier)
+  # ---------------------------------------------------------------------------
+  ControlPlaneEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-${Environment}-ec2-role"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${ProjectName}-${Environment}-ec2-policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt ArtifactsBucket.Arn
+                  - !Sub "${ArtifactsBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "${ControlPlaneLogGroup.Arn}:*"
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/*"
+
+  ControlPlaneInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "${ProjectName}-${Environment}-ec2-profile"
+      Roles:
+        - !Ref ControlPlaneEC2Role
+
+  ControlPlaneHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref EC2InstanceType
+      ImageId: !Ref LatestAL2023AmiId
+      SubnetId: !Ref PublicSubnetA
+      SecurityGroupIds:
+        - !Ref ControlPlaneSecurityGroup
+      IamInstanceProfile: !Ref ControlPlaneInstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: 20
+            Encrypted: true
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          dnf update -y
+          dnf install -y docker
+          systemctl enable --now docker
+          mkdir -p /opt/systera/keys
+          cat <<EOC > /opt/systera/env
+          SYSTERA_ENV=${Environment}
+          SYSTERA_HTTP_ADDR=:8080
+          SYSTERA_WEB_DIR=/app/web
+          SYSTERA_POSTGRES_HOST=${PostgresDB.Endpoint.Address}
+          SYSTERA_POSTGRES_PORT=${PostgresDB.Endpoint.Port}
+          SYSTERA_POSTGRES_DB=${DBName}
+          SYSTERA_POSTGRES_USER=${DBUsername}
+          SYSTERA_POSTGRES_SSLMODE=require
+          SYSTERA_AUTO_MIGRATE=true
+          SYSTERA_S3_BUCKET=${ArtifactsBucket}
+          SYSTERA_S3_REGION=${AWS::Region}
+          SYSTERA_AUTH_JWKS_URL=${AuthJWKSURL}
+          SYSTERA_AUTH_ISSUER=${AuthIssuer}
+          SYSTERA_AUTH_AUDIENCE=${AuthAudience}
+          EOC
+          chmod 600 /opt/systera/env
+          # Secrets are deliberately NOT written from UserData (it is readable via the EC2 API).
+          cat <<'EOS' > /opt/systera/load-secrets.sh
+          #!/bin/bash
+          set -euo pipefail
+          TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 60")
+          REGION=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
+          PREFIX="/${ProjectName}/${Environment}"
+          UMASK_OLD=$(umask)
+          umask 077
+          {
+            DB_PASS=$(aws ssm get-parameter --region "$REGION" --name "$PREFIX/db_password" --with-decryption --query 'Parameter.Value' --output text)
+            echo "SYSTERA_POSTGRES_PASSWORD=$DB_PASS"
+            if PUB_KEY=$(aws ssm get-parameter --region "$REGION" --name "$PREFIX/auth_public_key_pem" --with-decryption --query 'Parameter.Value' --output text 2>/dev/null); then
+              printf '%s\n' "$PUB_KEY" > /opt/systera/keys/auth_public.pem
+              chmod 444 /opt/systera/keys/auth_public.pem
+              echo "SYSTERA_AUTH_PUBLIC_KEY_FILE=/opt/systera/keys/auth_public.pem"
+            fi
+            if PRIV_KEY=$(aws ssm get-parameter --region "$REGION" --name "$PREFIX/auth_private_key_pem" --with-decryption --query 'Parameter.Value' --output text 2>/dev/null); then
+              printf '%s\n' "$PRIV_KEY" > /opt/systera/keys/auth_private.pem
+              chmod 444 /opt/systera/keys/auth_private.pem
+              echo "SYSTERA_AUTH_PRIVATE_KEY_FILE=/opt/systera/keys/auth_private.pem"
+            fi
+          } > /opt/systera/secrets.env
+          umask "$UMASK_OLD"
+          EOS
+          chmod 700 /opt/systera/load-secrets.sh
+
+          cat <<EOF > /etc/systemd/system/systera-api.service
+          [Unit]
+          Description=Systera Control Plane API
+          After=docker.service network-online.target
+          Requires=docker.service
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          Restart=always
+          RestartSec=5
+          ExecStartPre=/opt/systera/load-secrets.sh
+          ExecStartPre=/bin/sh -c 'aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com'
+          ExecStartPre=/usr/bin/docker pull ${ControlPlaneECRRepository.RepositoryUri}:${ImageTag}
+          ExecStartPre=-/usr/bin/docker rm -f systera-api
+          ExecStart=/usr/bin/docker run --rm --name systera-api -p 8080:8080 --env-file /opt/systera/env --env-file /opt/systera/secrets.env -v /opt/systera/keys:/opt/systera/keys:ro --log-driver=awslogs --log-opt awslogs-group=${ControlPlaneLogGroup} --log-opt awslogs-region=${AWS::Region} ${ControlPlaneECRRepository.RepositoryUri}:${ImageTag}
+          ExecStop=/usr/bin/docker stop systera-api
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          systemctl daemon-reload
+          systemctl enable systera-api
+          systemctl start systera-api || true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-${Environment}-control-plane"
+
+Outputs:
+  ControlPlaneInstanceId:
+    Description: EC2 Instance ID of the Control Plane host (for AWS SSM)
+    Value: !Ref ControlPlaneHost
+
+  ControlPlanePublicIP:
+    Description: Public IP address of the Control Plane EC2 host
+    Value: !GetAtt ControlPlaneHost.PublicIp
+
+  ControlPlaneAPIURL:
+    Description: Control Plane HTTP REST + SSE API URL
+    Value: !Sub "http://${ControlPlaneHost.PublicIp}:8080"
+
+  RDSEndpoint:
+    Description: Private RDS PostgreSQL endpoint
+    Value: !Sub "${PostgresDB.Endpoint.Address}:${PostgresDB.Endpoint.Port}"
+
+  ArtifactsBucketName:
+    Description: S3 bucket for immutable architecture artifacts and snapshots
+    Value: !Ref ArtifactsBucket
+
+  ECRRepositoryURI:
+    Description: ECR repository URI for Control Plane container images
+    Value: !GetAtt ControlPlaneECRRepository.RepositoryUri
+
+  CloudWatchLogGroupName:
+    Description: CloudWatch log group for Control Plane logs
+    Value: !Ref ControlPlaneLogGroup

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: systera
+description: >
+  Systera — Autonomous Engineering Intelligence Platform (Control Plane API,
+  Durable DAG Scheduler, and Specialist Agent Workers).
+type: application
+version: 0.2.0
+appVersion: "2.0.0"
+keywords:
+  - systera
+  - system-design
+  - multi-agent
+  - architecture
+home: https://github.com/systera/control-plane
+maintainers:
+  - name: Systera Engineering

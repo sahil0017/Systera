@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "systera.fullname" . }}-config
+  labels:
+    {{- include "systera.labels" . | nindent 4 }}
+data:
+  SYSTERA_ENV: {{ .Values.config.env | quote }}
+  SYSTERA_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  SYSTERA_AUTO_MIGRATE: {{ .Values.config.autoMigrate | quote }}
+  SYSTERA_SHUTDOWN_TIMEOUT: {{ .Values.config.shutdownTimeout | quote }}
+  SYSTERA_SSE_POLL_INTERVAL: {{ .Values.config.ssePollInterval | quote }}
+  SYSTERA_SSE_HEARTBEAT_INTERVAL: {{ .Values.config.sseHeartbeatInterval | quote }}
+
+  SYSTERA_AUTH_JWKS_URL: {{ .Values.config.auth.jwksUrl | quote }}
+  SYSTERA_AUTH_ISSUER: {{ .Values.config.auth.issuer | quote }}
+  SYSTERA_AUTH_AUDIENCE: {{ .Values.config.auth.audience | quote }}
+
+  SYSTERA_POSTGRES_HOST: {{ .Values.config.postgres.host | quote }}
+  SYSTERA_POSTGRES_PORT: {{ .Values.config.postgres.port | quote }}
+  SYSTERA_POSTGRES_DB: {{ .Values.config.postgres.db | quote }}
+  SYSTERA_POSTGRES_USER: {{ .Values.config.postgres.user | quote }}
+  SYSTERA_POSTGRES_SSLMODE: {{ .Values.config.postgres.sslMode | quote }}
+
+  SYSTERA_NATS_URL: {{ .Values.config.nats.url | quote }}
+  SYSTERA_NATS_STREAM: {{ .Values.config.nats.stream | quote }}
+  SYSTERA_NATS_SUBJECT_PREFIX: {{ .Values.config.nats.subjectPrefix | quote }}
+
+  SYSTERA_REDIS_ADDR: {{ .Values.config.redis.addr | quote }}
+
+  SYSTERA_S3_ENDPOINT: {{ .Values.config.s3.endpoint | quote }}
+  SYSTERA_S3_REGION: {{ .Values.config.s3.region | quote }}
+  SYSTERA_S3_BUCKET: {{ .Values.config.s3.bucket | quote }}
+
+  SYSTERA_MODEL_PROVIDER: {{ .Values.config.model.provider | quote }}
+  SYSTERA_MODEL_BASE_URL: {{ .Values.config.model.baseUrl | quote }}
+  SYSTERA_MODEL_DEFAULT: {{ .Values.config.model.defaultModel | quote }}
+  SYSTERA_MODEL_PRICING: {{ .Values.config.model.pricingJson | quote }}
+  SYSTERA_MODEL_TIMEOUT: {{ .Values.config.model.timeout | quote }}

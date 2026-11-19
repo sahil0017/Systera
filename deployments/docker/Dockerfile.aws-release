@@ -1,0 +1,15 @@
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates wget && addgroup -S systera && adduser -S systera -G systera
+USER systera
+WORKDIR /app
+
+COPY bin/linux-amd64/systera-api /usr/local/bin/systera-api
+COPY bin/linux-amd64/systera-scheduler /usr/local/bin/systera-scheduler
+COPY bin/linux-amd64/systera-worker-agent /usr/local/bin/systera-worker-agent
+COPY bin/linux-amd64/systera-migrate /usr/local/bin/systera-migrate
+COPY bin/linux-amd64/systera-admin /usr/local/bin/systera-admin
+COPY apps/web/dist /app/web
+
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- http://127.0.0.1:8080/readyz >/dev/null || exit 1
+ENTRYPOINT ["/usr/local/bin/systera-api"]

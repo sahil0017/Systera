@@ -1,0 +1,3 @@
+DROP POLICY IF EXISTS system_all_architecture_alternatives ON architecture_alternatives;
+DROP POLICY IF EXISTS tenant_isolation_architecture_alternatives ON architecture_alternatives;
+DROP TABLE IF EXISTS architecture_alternatives;

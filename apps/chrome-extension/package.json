@@ -1,0 +1,25 @@
+{
+  "name": "@systera/engineering-lens",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node build.mjs",
+    "test": "node build.mjs --tests && node --test --test-force-exit --test-timeout=60000 \"dist-test/*.test.mjs\""
+  },
+  "devDependencies": {
+    "@types/chrome": "0.0.287",
+    "@types/jsdom": "21.1.7",
+    "@types/node": "22.10.2",
+    "@types/react": "19.0.2",
+    "@types/react-dom": "19.0.2",
+    "esbuild": "0.25.0",
+    "jsdom": "26.0.0",
+    "typescript": "5.7.3"
+  },
+  "dependencies": {
+    "react": "19.0.0",
+    "react-dom": "19.0.0"
+  }
+}

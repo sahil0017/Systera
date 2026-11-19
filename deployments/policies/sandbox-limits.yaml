@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=none
+schema_version: "1.0"
+policy: ephemeral-sandbox-limits
+security:
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  dropCapabilities: ["ALL"]
+  seccompProfile: sandbox-seccomp.json
+  noHostSockets: true
+  noProductionSecrets: true
+quotas:
+  compiler:
+    cpuMillis: 1000
+    memoryMiB: 1024
+    ephemeralStorageMiB: 2048
+    maxPIDs: 64
+    wallClockSeconds: 120
+  simulation:
+    cpuMillis: 1000
+    memoryMiB: 1024
+    ephemeralStorageMiB: 1024
+    maxPIDs: 32
+    wallClockSeconds: 180

@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "systera.fullname" . }}-scheduler
+  labels:
+    {{- include "systera.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+spec:
+  replicas: {{ .Values.scheduler.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "systera.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: scheduler
+  template:
+    metadata:
+      labels:
+        {{- include "systera.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: scheduler
+    spec:
+      serviceAccountName: {{ include "systera.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: scheduler
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/systera-scheduler"]
+          env:
+            - name: SYSTERA_SCHEDULER_HTTP_ADDR
+              value: {{ printf ":%v" .Values.scheduler.probePort | quote }}
+            - name: SYSTERA_RELAY_INTERVAL
+              value: {{ .Values.scheduler.relayInterval | quote }}
+            - name: SYSTERA_RELAY_BATCH_SIZE
+              value: {{ .Values.scheduler.relayBatchSize | quote }}
+            - name: SYSTERA_RECLAIM_INTERVAL
+              value: {{ .Values.scheduler.reclaimInterval | quote }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "systera.fullname" . }}-config
+            - secretRef:
+                name: {{ include "systera.secretName" . }}
+          ports:
+            - name: probes
+              containerPort: {{ .Values.scheduler.probePort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.scheduler.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

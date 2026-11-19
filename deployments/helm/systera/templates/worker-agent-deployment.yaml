@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "systera.fullname" . }}-worker-agent
+  labels:
+    {{- include "systera.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker-agent
+spec:
+  {{- if not .Values.workerAgent.autoscaling.enabled }}
+  replicas: {{ .Values.workerAgent.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "systera.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker-agent
+  template:
+    metadata:
+      labels:
+        {{- include "systera.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker-agent
+    spec:
+      serviceAccountName: {{ include "systera.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: worker-agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/systera-worker-agent"]
+          env:
+            - name: SYSTERA_WORKER_HTTP_ADDR
+              value: {{ printf ":%v" .Values.workerAgent.probePort | quote }}
+            - name: SYSTERA_WORKER_AGENT_TYPES
+              value: {{ .Values.workerAgent.agentTypes | quote }}
+            - name: SYSTERA_LEASE_TTL
+              value: {{ .Values.workerAgent.leaseTTL | quote }}
+            - name: SYSTERA_WORKER_POLL_INTERVAL
+              value: {{ .Values.workerAgent.pollInterval | quote }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "systera.fullname" . }}-config
+            - secretRef:
+                name: {{ include "systera.secretName" . }}
+          ports:
+            - name: probes
+              containerPort: {{ .Values.workerAgent.probePort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.workerAgent.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+{{- if .Values.workerAgent.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "systera.fullname" . }}-worker-agent
+  labels:
+    {{- include "systera.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker-agent
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "systera.fullname" . }}-worker-agent
+  minReplicas: {{ .Values.workerAgent.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.workerAgent.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.workerAgent.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

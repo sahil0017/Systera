@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=none
+schema_version: "1.0"
+policy: systera-governance-matrix
+rules:
+  - actionClass: READ_PUBLIC_DOCS_OR_AUTHORIZED_REPO
+    autonomy: AUTONOMOUS_WITHIN_ALLOWLIST
+    requiresHumanApproval: false
+  - actionClass: INTERNAL_GRAPH_PATCH_LOW_MEDIUM_RISK
+    autonomy: AUTONOMOUS_VERSIONED
+    requiresHumanApproval: false
+  - actionClass: HIGH_RISK_GRAPH_PATCH
+    autonomy: GATED
+    requiresHumanApproval: true
+    triggers: ["remove_node", "ops_ge_20", "sensitive_node_type"]
+  - actionClass: ISOLATED_SIMULATION_WITHIN_BUDGET
+    autonomy: AUTONOMOUS_WITHIN_QUOTA
+    requiresHumanApproval: false
+  - actionClass: SANDBOX_CODE_AND_TEST_GENERATION
+    autonomy: AUTONOMOUS_UNTRUSTED_UNTIL_VALIDATED
+    requiresHumanApproval: false
+  - actionClass: OPEN_PULL_REQUEST
+    autonomy: CONDITIONAL_REPO_GRANT
+    requiresHumanApproval: true
+  - actionClass: DEPLOY_OR_MODIFY_PRODUCTION
+    autonomy: DISABLED_BY_DEFAULT
+    requiresHumanApproval: true
+  - actionClass: ACTIVE_SECURITY_TESTING
+    autonomy: DISABLED_BY_DEFAULT
+    requiresHumanApproval: true
+  - actionClass: DELETE_TENANT_DATA_OR_REVOKE_ACCESS
+    autonomy: RESTRICTED
+    requiresHumanApproval: true

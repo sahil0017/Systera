@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://systera.dev/contracts/graph/graph-patch-result.v1.json",
+  "title": "GraphPatchResult v1.0",
+  "description": "Outcome of a GraphPatch. ACCEPTED creates exactly one new immutable graph version; REJECTED (validation findings) and CONFLICT (stale base_graph_version) change nothing. Every outcome is recorded and replayed for the same idempotency key.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "patch_id",
+    "model_id",
+    "status",
+    "accepted",
+    "base_graph_version",
+    "current_graph_version",
+    "new_graph_version",
+    "changes",
+    "conflicts",
+    "validation_findings",
+    "invalidated_artifacts",
+    "impacted_components",
+    "decided_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "patch_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "model_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "ACCEPTED",
+        "REJECTED",
+        "CONFLICT"
+      ]
+    },
+    "accepted": {
+      "type": "boolean"
+    },
+    "base_graph_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "current_graph_version": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "new_graph_version": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "graph_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "changes": {
+      "$ref": "#/$defs/change_summary"
+    },
+    "changes_since_base": {
+      "$ref": "#/$defs/change_summary",
+      "description": "CONFLICT only: what changed between base_graph_version and current."
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "op_index",
+          "target_id",
+          "reason"
+        ],
+        "properties": {
+          "op_index": {
+            "type": "integer"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "modified_since_base",
+              "removed_since_base",
+              "key_taken_since_base",
+              "endpoint_removed_since_base"
+            ]
+          },
+          "changed_in_version": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "validation_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "op_index",
+          "code",
+          "severity",
+          "message"
+        ],
+        "properties": {
+          "op_index": {
+            "type": "integer",
+            "description": "-1 for patch-level findings"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "ERROR",
+              "WARNING"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "invariant": {
+            "type": "string",
+            "description": "graph_invariants key, when the finding enforces one"
+          }
+        }
+      }
+    },
+    "invalidated_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Artifact ids marked stale (populated once artifact bindings land, checklist 6.x)."
+    },
+    "impacted_components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "node_id",
+          "key",
+          "type"
+        ],
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      },
+      "description": "Changed nodes plus everything that transitively depends on them (inbound traversal)."
+    },
+    "decided_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "$defs": {
+    "change_summary": {
+      "type": "object",
+      "required": [
+        "nodes_added",
+        "nodes_updated",
+        "nodes_removed",
+        "edges_added",
+        "edges_removed"
+      ],
+      "properties": {
+        "nodes_added": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "nodes_updated": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "nodes_removed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "edges_added": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "edges_removed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  }
+}

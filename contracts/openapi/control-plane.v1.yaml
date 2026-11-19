@@ -1,0 +1,756 @@
+openapi: 3.1.0
+info:
+  title: Systera Control Plane API
+  version: 3.2.0
+  description: Stage 0-2 Control Plane API for Projects, Durable Design Runs, Architecture Graph, Evidence Ledger, Decision Ledger (ADRs), Artifacts & RL Projections, Dependency Impact Analysis, and Human Approval Gates, Knowledge & Memory, Engineering Pulse and Engineering Lens (Stage 3).
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Service is alive
+  /readyz:
+    get:
+      summary: Readiness probe
+      responses:
+        "200":
+          description: Service is ready
+        "503":
+          description: One or more dependencies are unhealthy
+
+  /v1/projects:
+    post:
+      summary: Create a tenant-scoped project
+      responses:
+        "201":
+          description: Project created
+    get:
+      summary: List projects for the authenticated tenant
+      responses:
+        "200":
+          description: Project list
+  /v1/projects/{id}:
+    get:
+      summary: Get project by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Project details }
+        "404": { description: Project not found }
+
+  /v1/projects/{id}/runs:
+    post:
+      summary: Start an autonomous design run (202 Accepted)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        "202": { description: Run accepted }
+  /v1/runs/{id}:
+    get:
+      summary: Get design run status and budget
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Design run details }
+  /v1/runs/{id}/cancel:
+    post:
+      summary: Cancel an active design run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Run cancelled }
+  /v1/runs/{id}/events:
+    get:
+      summary: Stream live run events over Server-Sent Events (SSE)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: SSE event stream }
+  /v1/runs/{id}/plan:
+    post:
+      summary: Submit a task DAG plan for a design run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: Plan accepted and tasks created }
+  /v1/runs/{id}/tasks:
+    get:
+      summary: List tasks in a design run
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Task list }
+
+  /v1/projects/{id}/architecture:
+    post:
+      summary: Create the canonical architecture model for a project
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: Architecture model created }
+    get:
+      summary: Get the project's canonical architecture model
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Architecture model }
+
+  /v1/architecture/{model}/versions:
+    get:
+      summary: List immutable versions of an architecture model
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Version list }
+  /v1/architecture/{model}/versions/{version}:
+    get:
+      summary: Retrieve an immutable graph snapshot at a specific version
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: version
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200": { description: Graph snapshot }
+  /v1/architecture/{model}/diff:
+    get:
+      summary: Diff two immutable graph versions
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Graph diff }
+  /v1/architecture/{model}/nodes/{node}/neighbourhood:
+    get:
+      summary: Query reachable neighbourhood from a node
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: node
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Node neighbourhood }
+  /v1/architecture/{model}/patches:
+    post:
+      summary: Submit a GraphPatch with optimistic concurrency and invariant checks
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: Patch accepted and new version created }
+        "409": { description: Optimistic concurrency or idempotency conflict }
+        "422": { description: Graph invariant violation }
+  /v1/architecture/{model}/patches/{patch}:
+    get:
+      summary: Retrieve a recorded GraphPatch result
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: patch
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Patch result }
+
+  /v1/architecture/{model}/evidence:
+    post:
+      summary: Capture provenance-tracked evidence
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: Evidence captured }
+    get:
+      summary: List evidence records
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Evidence list }
+  /v1/architecture/{model}/assumptions:
+    post:
+      summary: Record an explicit architectural assumption
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: Assumption recorded }
+    get:
+      summary: List assumptions
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Assumption list }
+  /v1/architecture/{model}/claims:
+    post:
+      summary: Record a classified claim (OBSERVED, INFERRED, PROPOSED)
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: Claim recorded }
+    get:
+      summary: List claims
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Claim list }
+
+  /v1/architecture/{model}/decisions:
+    post:
+      summary: Propose a new Architecture Decision Record (ADR)
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: ADR created }
+    get:
+      summary: List ADRs for an architecture model
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: ADR list }
+  /v1/architecture/{model}/decisions/{id}/transition:
+    post:
+      summary: Transition ADR state (PROPOSED, ACCEPTED, REJECTED, SUPERSEDED, NEEDS_REVIEW)
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: ADR transitioned }
+  /v1/architecture/{model}/decisions/{id}/supersede:
+    post:
+      summary: Atomically supersede an ADR with a replacement ADR
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: ADR superseded }
+
+  /v1/architecture/{model}/artifacts:
+    post:
+      summary: Record a new artifact binding
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: Artifact recorded }
+    get:
+      summary: List artifacts
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Artifact list }
+  /v1/architecture/{model}/project:
+    post:
+      summary: Generate, validate, and persist a projection (sync or async) to S3/MinIO
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: Projection generated, validated, and persisted }
+        "202": { description: Async projection queued }
+  /v1/architecture/{model}/project/reward:
+    post:
+      summary: Record RL reward feedback for a projection strategy arm
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Updated RL arm statistics }
+  /v1/architecture/{model}/impact:
+    post:
+      summary: Run bounded dependency impact analysis
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Impact report }
+
+  /v1/architecture/{model}/artifacts/{id}:
+    get:
+      summary: Get an artifact and its current binding
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Artifact }
+        "404": { description: Artifact or model not found }
+  /v1/architecture/{model}/artifacts/{id}/versions:
+    post:
+      summary: Record a new artifact version bound to a graph version and hash
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "201": { description: Artifact version recorded }
+        "404": { description: Artifact or model not found }
+        "409": { description: Stale graph version, or artifact retired }
+        "422": { description: Dependency validation failed }
+    get:
+      summary: List immutable artifact versions
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Version list }
+        "404": { description: Artifact not found }
+  /v1/architecture/{model}/artifacts/{id}/verify:
+    get:
+      summary: Verify an artifact's dependency hashes against the current graph (drift report)
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Verification report }
+        "404": { description: Artifact not found }
+  /v1/architecture/{model}/nodes/{node}/impact:
+    get:
+      summary: Bounded dependency impact of one node
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - { name: node, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: version, in: query, schema: { type: integer } }
+        - { name: max_depth, in: query, schema: { type: integer, default: 25 } }
+        - { name: max_nodes, in: query, schema: { type: integer, default: 10000 } }
+        - { name: relation, in: query, description: Comma-separated relation types, schema: { type: string } }
+      responses:
+        "200": { description: Impact report (truncation reported exactly) }
+        "400": { description: Invalid limits }
+        "404": { description: Model, version or node not found }
+
+  /v1/knowledge/documents:
+    post:
+      summary: Ingest a versioned, provenance-tracked knowledge document (normalize, chunk, dedupe, embed)
+      responses:
+        "201": { description: Document created }
+        "200": { description: Identical content already stored (deduplicated) }
+        "400": { description: Invalid input }
+  /v1/knowledge/documents/{id}:
+    get:
+      summary: Get a knowledge document (own tenant or PUBLIC)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Knowledge document }
+        "404": { description: Not found }
+  /v1/knowledge/documents/{id}/conflict:
+    post:
+      summary: Record a conflict between two knowledge documents (never silently resolved)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Marked CONFLICTED }
+        "404": { description: Not found }
+  /v1/knowledge/search:
+    post:
+      summary: Hybrid retrieval (metadata filters + keyword + pgvector + recency + primary-source preference); results are framed untrusted data with provenance
+      responses:
+        "200": { description: Ranked results }
+        "400": { description: Invalid query }
+  /v1/knowledge/updates:
+    get:
+      summary: Engineering Pulse knowledge published through the validation gate
+      parameters:
+        - { name: topic, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [PUBLISHED, SUPERSEDED, STALE] } }
+      responses:
+        "200": { description: Knowledge updates with notified agent domains }
+  /v1/knowledge/subscriptions:
+    get:
+      summary: Agent-domain knowledge subscriptions
+      parameters:
+        - { name: agent_type, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Subscriptions }
+  /v1/knowledge/notifications:
+    get:
+      summary: An agent domain's knowledge inbox
+      parameters:
+        - { name: agent_type, in: query, schema: { type: string } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+      responses:
+        "200": { description: Notifications for PUBLISHED knowledge }
+  /v1/knowledge/patterns:
+    post:
+      summary: Retrieve validated Engineering Pulse patterns for a design context, each with why it is relevant, supporting sources, limitations and an adoption signal that is never a selection criterion; with run_id the retrieval is recorded on the run (write role)
+      responses:
+        "200": { description: Pattern references with explanations }
+        "400": { description: Invalid query }
+        "403": { description: Recording on a run requires a write role }
+        "404": { description: Run not found }
+  /v1/runs/{id}/knowledge:
+    get:
+      summary: Patterns a design run retrieved, why, and from which sources
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Run knowledge references }
+        "404": { description: Run not found }
+  /v1/projects/{id}/memory:
+    post:
+      summary: Record a distilled WORKING / EPISODIC / SEMANTIC / PROJECT memory (no raw transcripts)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "201": { description: Memory recorded }
+        "400": { description: Invalid input or transcript-sized content }
+    get:
+      summary: Retrieve relevant, permission-checked project memory
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Memory records }
+
+  /v1/trends:
+    get:
+      summary: Topics ranked by latest trend score (0.25P+0.25G+0.20E+0.20R+0.10N), with the latest report status and linked validated knowledge. Attention signal only.
+      parameters:
+        - { name: facet, in: query, schema: { type: string, enum: [DOMAIN, TECHNOLOGY, PATTERN] } }
+        - { name: min_score, in: query, schema: { type: number } }
+        - { name: limit, in: query, schema: { type: integer, default: 25 } }
+      responses:
+        "200": { description: Trend board }
+        "400": { description: Invalid filter }
+  /v1/trends/topics:
+    get:
+      summary: Topic taxonomy (domain, technology, pattern, maturity)
+      responses:
+        "200": { description: Topics }
+  /v1/trends/topics/{key}:
+    get:
+      summary: Topic detail - score history, daily observations, canonical items, reports, knowledge
+      parameters:
+        - { name: key, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Topic detail }
+        "404": { description: Unknown topic }
+  /v1/trends/items:
+    get:
+      summary: Trend items with retrieval metadata (canonical only unless include_duplicates=true)
+      parameters:
+        - { name: topic, in: query, schema: { type: string } }
+        - { name: include_duplicates, in: query, schema: { type: boolean } }
+        - { name: limit, in: query, schema: { type: integer, default: 50 } }
+      responses:
+        "200": { description: Items }
+  /v1/trends/items/{id}:
+    get:
+      summary: One item with its topics and its duplicates (mirrors, reposts, versions, near-duplicates)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Item }
+        "404": { description: Not found }
+  /v1/trends/sources:
+    get:
+      summary: Source registry with terms of use, allowed content, rate limits, approval and fetch state
+      responses:
+        "200": { description: Sources }
+  /v1/trends/reports:
+    get:
+      summary: Research reports (including rejected ones with failed gate checks)
+      parameters:
+        - { name: topic, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [DRAFT, VALIDATED, REJECTED, PUBLISHED, SUPERSEDED, STALE] } }
+      responses:
+        "200": { description: Reports }
+  /v1/trends/reports/{id}:
+    get:
+      summary: Research report with evidence, limitations, confidence, freshness and validation results
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Report }
+        "404": { description: Not found }
+  /v1/trends/compare:
+    post:
+      summary: Guardrail - rank technology options on maturity, operational burden, cost, security and fit; trend score may only break near-ties
+      responses:
+        "200": { description: Ranked comparison with selection basis and warnings }
+        "400": { description: Invalid weights or fewer than two options }
+        "422": { description: Incomplete assessment (missing criterion or rationale) }
+
+  /v1/auth/lens-token:
+    post:
+      summary: Exchange a workspace token for a short-lived (<= 1h, default 15m), tenant-pinned, lens-scoped RS256 token that can only call /v1/browser/* and /v1/websites*. Enabled when the API holds the signing key.
+      responses:
+        "201": { description: Lens token }
+        "400": { description: ttl_seconds above 3600 }
+        "403": { description: Called with a scoped token (scoped tokens cannot mint tokens) }
+  /v1/browser/consent:
+    get:
+      summary: Current consent text and version the extension must show before a scan
+      responses:
+        "200": { description: Consent }
+  /v1/browser/sessions:
+    post:
+      summary: Open a consent-recorded investigation (consent_confirmed + current consent_version required); allowed_pages bounds multi-page mode to user-selected pages on the domain
+      responses:
+        "201": { description: Session }
+        "400": { description: Domain or selected page rejected by URL policy }
+        "403": { description: Consent missing or for an outdated consent text }
+        "409": { description: More pages selected than max_pages }
+    get:
+      summary: The caller's own investigations
+      responses:
+        "200": { description: Sessions }
+  /v1/browser/sessions/{id}:
+    get:
+      summary: One investigation (owner, or tenant OWNER/ADMIN)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Session }
+        "404": { description: Not found or not yours }
+    delete:
+      summary: Delete the investigation, its observations and everything derived from them (promoted workspace projects remain)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Deletion report with counts }
+        "404": { description: Not found or not yours }
+  /v1/browser/sessions/{id}/observations:
+    get:
+      summary: Exactly what is stored for an investigation
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Stored (re-sanitized, untrusted) observations }
+        "404": { description: Not found or not yours }
+  /v1/browser/observations:
+    post:
+      summary: Submit one user-initiated page observation (schema 1.0, strict fields, <= 256 KiB). The server re-sanitizes everything, checks the page is on the session domain and selected, and flags instruction-like text; observations are untrusted data.
+      responses:
+        "201": { description: Stored observation with redactions applied }
+        "400": { description: Schema violation or URL policy (off-domain, unselected, private address) }
+        "403": { description: Not user-initiated }
+        "404": { description: Session not found or not yours }
+        "409": { description: Page already captured, page limit reached, or session closed / past retention }
+        "413": { description: Payload too large }
+  /v1/browser/observations/{id}:
+    delete:
+      summary: Delete one captured page and every profile derived from it
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Deletion report }
+        "404": { description: Not found or not yours }
+  /v1/browser/analyze:
+    post:
+      summary: Derive (or re-derive) the investigation's website profile from its observations
+      responses:
+        "201": { description: Website profile with OBSERVED / PROPOSED findings citing observations }
+        "404": { description: Session not found or not yours }
+        "409": { description: No observations, or promotion in progress }
+  /v1/websites:
+    get:
+      summary: Website profiles (own; all of the tenant's for OWNER/ADMIN)
+      responses:
+        "200": { description: Profiles }
+  /v1/websites/{id}:
+    get:
+      summary: One website profile
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Profile }
+        "404": { description: Not found or not yours }
+  /v1/websites/{id}/fingerprint:
+    get:
+      summary: Architecture fingerprint of a website profile (hypothesis from public UI, not hidden infrastructure)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Fingerprint }
+        "404": { description: Not found }
+  /v1/websites/{id}/alternatives:
+    get:
+      summary: Counterfactual architecture alternatives
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Alternatives }
+        "404": { description: Not found }
+  /v1/websites/{id}/promote:
+    post:
+      summary: Continue in workspace - create a project and architecture model seeded with the PROPOSED components; idempotent
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Promoted profile with project_id and model_id }
+        "404": { description: Not found or not yours }
+        "409": { description: Promotion already in progress }
+
+  /v1/websites/{id}/analysis:
+    post:
+      summary: Start the website-intelligence analysis - promotes the investigation if needed, creates a design run and submits the nine-agent DAG (Independent Reviewer last) through the scheduler. Idempotency-Key replays return the same run.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: false, schema: { type: string } }
+      responses:
+        "202": { description: Run and tasks }
+        "404": { description: Not found or not yours }
+        "409": { description: Promotion in progress or idempotency conflict }
+        "422": { description: Plan rejected by the runtime }
+  /v1/websites/{id}/capabilities:
+    get:
+      summary: website_capabilities - capabilities, journeys and passive technology signals with evidence class, confidence, cited observations, clue, provenance (baseline or agent/run/task) and ledger claim
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Findings }
+        "404": { description: Not found or not yours }
+  /v1/websites/{id}/hypotheses:
+    get:
+      summary: architecture_hypotheses - system design (with alternatives), domains, components, data entities, APIs and infrastructure; INFERRED or PROPOSED only
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Hypotheses }
+        "404": { description: Not found or not yours }
+  /v1/websites/{id}/evidence:
+    get:
+      summary: architecture_evidence - one row per finding and cited observation, with its ledger evidence and claim
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Evidence links }
+        "404": { description: Not found or not yours }
+
+  /v1/approvals:
+    get:
+      summary: List pending or decided human approval requests
+      responses:
+        "200": { description: Approval request list }
+  /v1/approvals/{id}/decision:
+    post:
+      summary: Approve or reject a gated high-risk action (auto-applies paused GraphPatch on approval)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Approval decision recorded }
