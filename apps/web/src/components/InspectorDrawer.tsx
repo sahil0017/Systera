@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { SysteraApiClient } from '../lib/api';
 import { LAYER_BY_ID } from '../lib/layers';
 import { LearningPanel } from './LearningPanel';
 import type { ComponentInspection } from '../types/xray';
 
-type InspectorTab = 'all' | 'overview' | 'connections' | 'evidence' | 'alternatives' | 'learn';
+export type InspectorTab = 'all' | 'overview' | 'connections' | 'evidence' | 'alternatives' | 'learn';
 
 interface InspectorDrawerProps {
   inspection: ComponentInspection | null;
@@ -15,6 +15,8 @@ interface InspectorDrawerProps {
   onCopy: (text: string, label: string) => void;
   /** Enables the Learning Mode tab (spec §2.7). */
   learning?: { api: SysteraApiClient; modelId: string; version: string };
+  /** Tab to switch to; re-applied whenever `tabRequest.seq` changes. */
+  tabRequest?: { tab: InspectorTab; seq: number };
 }
 
 export function InspectorDrawer({
@@ -25,8 +27,12 @@ export function InspectorDrawer({
   onDrillDown,
   onCopy,
   learning,
+  tabRequest,
 }: InspectorDrawerProps) {
-  const [tab, setTab] = useState<InspectorTab>('all');
+  const [tab, setTab] = useState<InspectorTab>(tabRequest?.tab ?? 'all');
+  useEffect(() => {
+    if (tabRequest) setTab(tabRequest.tab);
+  }, [tabRequest]);
 
   if (loading) {
     return (
@@ -139,7 +145,7 @@ export function InspectorDrawer({
       {show('overview') && (
         <>
           <div className="insp-section">
-            <h4>1. Responsibilities</h4>
+            <h4>Responsibilities</h4>
             <div className="insp-list">
               {inspection.responsibilities.length === 0 ? (
                 <div className="empty-note">None recorded.</div>
@@ -154,7 +160,7 @@ export function InspectorDrawer({
           </div>
 
           <div className="insp-section">
-            <h4>4. Data Ownership ({dataNodes.length})</h4>
+            <h4>Data Ownership ({dataNodes.length})</h4>
             <div className="insp-list">
               {dataNodes.length === 0 ? (
                 <div className="empty-note">No direct data store ownership or access.</div>
@@ -183,7 +189,7 @@ export function InspectorDrawer({
         <>
           <div className="insp-section">
             <h4>
-              2. Dependencies ({inspection.dependencies.upstream.length} upstream ·{' '}
+              Dependencies ({inspection.dependencies.upstream.length} upstream ·{' '}
               {inspection.dependencies.downstream.length} downstream)
             </h4>
             <div className="insp-list">
@@ -231,7 +237,7 @@ export function InspectorDrawer({
           </div>
 
           <div className="insp-section">
-            <h4>3. Interfaces ({inspection.interfaces.length})</h4>
+            <h4>Interfaces ({inspection.interfaces.length})</h4>
             <div className="insp-list">
               {inspection.interfaces.length === 0 ? (
                 <div className="empty-note">No exposed or consumed interfaces.</div>
@@ -260,7 +266,7 @@ export function InspectorDrawer({
       {show('evidence') && (
         <>
           <div className="insp-section">
-            <h4>5. Evidence &amp; Claims ({inspection.evidence.length})</h4>
+            <h4>Evidence &amp; Claims ({inspection.evidence.length})</h4>
             <div className="insp-list">
               {inspection.evidence.length === 0 ? (
                 <div className="empty-note">No linked ledger claims yet.</div>
@@ -284,7 +290,7 @@ export function InspectorDrawer({
           </div>
 
           <div className="insp-section">
-            <h4>6. Assumptions ({inspection.assumptions.length})</h4>
+            <h4>Assumptions ({inspection.assumptions.length})</h4>
             <div className="insp-list">
               {inspection.assumptions.length === 0 ? (
                 <div className="empty-note">No explicit assumptions linked.</div>
@@ -302,7 +308,7 @@ export function InspectorDrawer({
           </div>
 
           <div className="insp-section">
-            <h4>7. Failure Modes ({inspection.failure_modes.length})</h4>
+            <h4>Failure Modes ({inspection.failure_modes.length})</h4>
             <div className="insp-list">
               {inspection.failure_modes.length === 0 ? (
                 <div className="empty-note">No failure modes identified.</div>
@@ -326,7 +332,7 @@ export function InspectorDrawer({
 
       {show('alternatives') && (
         <div className="insp-section">
-          <h4>8. Alternatives ({inspection.alternatives.length})</h4>
+          <h4>Alternatives ({inspection.alternatives.length})</h4>
           <div className="insp-list">
             {inspection.alternatives.length === 0 ? (
               <div className="empty-note">No ADR alternatives recorded for this component.</div>

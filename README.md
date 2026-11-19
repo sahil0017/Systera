@@ -288,9 +288,20 @@ Migrations `000016_website_intelligence_agents`, `000017_website_agents_wiring`;
 
 The Independent Reviewer always runs last and depends on every other task; the run records `analysis_mode` in its constraints. **Compare websites** compares 2–5 of your own investigations on the shared capability taxonomy (`CapabilityTaxonomy`, `capability-taxonomy/1`), which is also what the baseline profile classifies against: a capability matrix, shared / unique capabilities, agent findings outside the taxonomy, journeys, passive technology signals and pairwise Jaccard similarity, with notes when a site came from a single page. The side panel now has the §16.2 screens: Discovery, X-Ray (fingerprint layers and quality attributes), Alternatives (decision matrix), Full investigation (start the mode's run, proposed HLD / components / data / APIs / infrastructure) and Compare.
 
+## Web workspace — Stage 3 screens
+
+Besides **X-Ray**, **Alternatives** and **Learn** for an opened architecture, the workspace has two sections available as soon as you connect:
+
+| Section | Shows | Backed by |
+| :--- | :--- | :--- |
+| **Websites** | Lens investigations: findings by kind and evidence class, evidence links, fingerprint (build / rebuild), proposed alternatives, live agent-run progress, the knowledge the run used, compare 2–5 sites, open the promoted model in X-Ray | `/v1/websites/*`, `/v1/runs/{id}`, `/v1/runs/{id}/tasks`, `/v1/runs/{id}/knowledge` |
+| **Research** | Engineering Pulse trends (score history and components), validated research reports (findings, sources, validation checks, staleness), knowledge search (conflicts and injection flags shown), the option-comparison guardrail, agent updates / notifications / subscriptions, sources with terms and licence, and run provenance | `/v1/trends*`, `/v1/knowledge/*` |
+
+Deep links carry `tab`, `site`, `section` and `run`, and ⌘K jumps to any section.
+
 ## Stage 3.6 — Engineering Learning Mode (spec §2.7, §8.5)
 
-Migration `000020_learning_mode`, package `internal/learning`, routes under `/v1/architecture/{model}/learning`, web workspace **Learn** tab in the component inspector.
+Migration `000020_learning_mode`, package `internal/learning`, routes under `/v1/architecture/{model}/learning`, web workspace **Learn** tab in the component inspector and a whole-model **Learn** view (component tour, interview questions by level, exercises).
 
 | Output | Derived from |
 | :--- | :--- |

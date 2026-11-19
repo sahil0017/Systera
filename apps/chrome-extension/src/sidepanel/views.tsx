@@ -10,8 +10,8 @@ export type ViewKey = "discovery" | "xray" | "alternatives" | "investigation" | 
 export const VIEWS: Array<{ key: ViewKey; label: string }> = [
   { key: "discovery", label: "Discovery" },
   { key: "xray", label: "X-Ray" },
-  { key: "alternatives", label: "Alternatives" },
-  { key: "investigation", label: "Full investigation" },
+  { key: "alternatives", label: "Options" },
+  { key: "investigation", label: "Agents" },
   { key: "compare", label: "Compare" },
 ];
 
@@ -46,20 +46,43 @@ function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
 }
 
 function Loading({ error }: { error: string }) {
-  return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
+  if (error) return <p className="error">{error}</p>;
+  return (
+    <div className="skeleton" aria-busy="true" aria-label="Loading">
+      <div className="sk-line w60" /><div className="sk-line w90" /><div className="sk-line w75" /><div className="sk-line w40" />
+    </div>
+  );
 }
 
-function FindingList({ items }: { items: Finding[] }) {
-  if (items.length === 0) return <p className="muted">None yet.</p>;
+function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
   return (
-    <ul>
+    <div className="view-section">
+      <h3>{title}{count !== undefined && <span className="count">{count}</span>}</h3>
+      {children}
+    </div>
+  );
+}
+
+function FindingList({ items, empty = "None yet." }: { items: Finding[]; empty?: string }) {
+  if (items.length === 0) return <p className="fine">{empty}</p>;
+  return (
+    <div className="findings">
       {items.map((f) => (
-        <li key={f.id}>
-          <Badge cls={f.evidence_class} /> {f.name} <span className="muted">({f.confidence}{f.source === "AGENT" && f.agent_type ? `, ${f.agent_type}` : ""})</span>
-          {f.rationale && <div className="muted">{f.rationale}</div>}
-        </li>
+        <details key={f.id} className="finding">
+          <summary>
+            <Badge cls={f.evidence_class} />
+            <span className="finding-name">{f.name}</span>
+            <span className={`conf ${f.confidence}`} title={`${f.confidence} confidence`}>{f.confidence?.[0] ?? ""}</span>
+          </summary>
+          <div className="finding-body">
+            {f.statement && f.statement !== f.name && <p>{f.statement}</p>}
+            {f.rationale && <p className="fine">{f.rationale}</p>}
+            {f.clue && <p className="fine">Clue: <code>{f.clue}</code></p>}
+            <p className="fine">{f.source === "AGENT" && f.agent_type ? `Recorded by ${f.agent_type.replace(/_/g, " ")}` : "Baseline analysis"} · cites {f.observation_ids.length} page{f.observation_ids.length === 1 ? "" : "s"}</p>
+          </div>
+        </details>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -70,16 +93,17 @@ export function DiscoveryView({ client, profile }: { client: LensAPIClient; prof
   }, [profile.id, profile.status]);
   if (!data) return <Loading error={error} />;
   const by = (xs: Finding[], kind: string) => xs.filter((f) => f.kind === kind);
+  const sections: Array<[string, Finding[], string]> = [
+    ["Capabilities", by(data.caps, "CAPABILITY"), "No capabilities detected on the scanned pages."],
+    ["User journeys", by(data.caps, "JOURNEY"), "No journeys yet. Product map mode captures more pages."],
+    ["Domains", by(data.hyps, "DOMAIN"), "Domains are proposed by the Domain Architect agent (Agents tab)."],
+    ["Technology signals (passive)", by(data.caps, "TECHNOLOGY_SIGNAL"), "No technology clues in what the page loaded."],
+  ];
   return (
     <div>
-      <h3>Capability map</h3>
-      <FindingList items={by(data.caps, "CAPABILITY")} />
-      <h3>User journeys</h3>
-      <FindingList items={by(data.caps, "JOURNEY")} />
-      <h3>Domain hypotheses</h3>
-      <FindingList items={by(data.hyps, "DOMAIN")} />
-      <h3>Technology signals (passive)</h3>
-      <FindingList items={by(data.caps, "TECHNOLOGY_SIGNAL")} />
+      {sections.map(([t, items, empty]) => (
+        <Section key={t} title={t} count={items.length}><FindingList items={items} empty={empty} /></Section>
+      ))}
     </div>
   );
 }
@@ -161,42 +185,85 @@ const DESIGN_KINDS: Array<[string, string]> = [
   ["INFRASTRUCTURE", "Infrastructure"],
 ];
 
-export function InvestigationView({ client, profile, onStarted, busy }: {
-  client: LensAPIClient; profile: WebsiteProfile; busy: boolean;
+const POLL_MS = 5000;
+const POLL_MAX = 60; // about five minutes
+
+export function InvestigationView({ client, profile, onStarted }: {
+  client: LensAPIClient; profile: WebsiteProfile;
   onStarted: (p: WebsiteProfile, message: string) => void;
 }) {
-  const { data, error } = useLoad(() => client.listFindings(profile.id, "hypotheses"), [profile.id, profile.status, profile.run_id]);
-  const [startError, setStartError] = useState("");
+  const [items, setItems] = useState<Finding[] | null>(null);
+  const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
+  const [polls, setPolls] = useState(0);
+  const [fresh, setFresh] = useState(0);
+
+  // Load, and while an agent run is attached keep refreshing so findings stream in.
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let n = 0;
+    let prev = -1;
+    const tick = async () => {
+      try {
+        const r = await client.listFindings(profile.id, "hypotheses");
+        if (!live) return;
+        const agentCount = r.items.filter((f) => f.source === "AGENT").length;
+        if (prev >= 0 && agentCount > prev) setFresh((x) => x + agentCount - prev);
+        prev = agentCount;
+        setItems(r.items);
+      } catch (e) {
+        if (live) setError((e as Error).message);
+      }
+      n++;
+      if (live) setPolls(n);
+      if (live && profile.run_id && n < POLL_MAX) timer = setTimeout(tick, POLL_MS);
+    };
+    void tick();
+    return () => {
+      live = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [client, profile.id, profile.run_id]);
+
   const start = async () => {
-    setStartError("");
+    setError("");
     setStarting(true);
     try {
       const r = await client.startAnalysis(profile.id, `lens-analysis:${profile.id}`);
-      onStarted({ ...profile, ...r.website }, `Multi-agent investigation started (run ${r.run.id}, ${r.tasks.length} specialist tasks; the Independent Reviewer runs last). Findings appear here as agents record them.`);
+      onStarted({ ...profile, ...r.website }, `${r.tasks.length} specialist agents are working on ${profile.domain}; the Independent Reviewer runs last. Findings appear in the Agents tab as they're recorded.`);
     } catch (e) {
-      setStartError((e as Error).message);
+      setError((e as Error).message);
     } finally {
       setStarting(false);
     }
   };
+  const agents = items?.filter((f) => f.source === "AGENT").length ?? 0;
+  const watching = !!profile.run_id && polls < POLL_MAX;
   return (
     <div>
       {profile.run_id ? (
-        <p className="muted">Multi-agent run {profile.run_id} is attached to this investigation. Agent findings are labelled with the agent that recorded them; reviewer corrections update their confidence.</p>
-      ) : (
-        <>
-          <p className="muted">Runs the specialist agents for this investigation's mode, with an Independent Reviewer last. This creates a workspace project.</p>
-          <div className="row"><button className="primary" onClick={start} disabled={busy || starting}>{starting ? "Starting…" : "Start full investigation"}</button></div>
-        </>
-      )}
-      {startError && <p className="error">{startError}</p>}
-      {!data ? <Loading error={error} /> : DESIGN_KINDS.map(([kind, label]) => (
-        <div key={kind}>
-          <h3>{label}</h3>
-          <FindingList items={data.items.filter((f) => f.kind === kind)} />
+        <div className={`run-status ${watching ? "live" : ""}`}>
+          {watching && <span className="pulse" aria-hidden="true" />}
+          <div>
+            <strong>{watching ? "Agents are working" : "Agent run attached"}</strong>
+            <div className="fine">{agents} agent finding{agents === 1 ? "" : "s"} so far{fresh > 0 ? ` · ${fresh} new` : ""}{watching ? " · refreshing every 5 s" : ""}</div>
+          </div>
         </div>
-      ))}
+      ) : (
+        <div className="run-status">
+          <div>
+            <strong>Run the specialist agents</strong>
+            <div className="fine">Agents look deeper than the baseline analysis: domains, data, APIs and infrastructure, then an Independent Reviewer checks every finding. Creates a workspace project.</div>
+          </div>
+          <button className="primary" onClick={start} disabled={starting}>{starting ? <span className="spinner" /> : "Start agents"}</button>
+        </div>
+      )}
+      {error && <p className="error">{error}</p>}
+      {!items ? <Loading error={error} /> : DESIGN_KINDS.map(([kind, label]) => {
+        const xs = items.filter((f) => f.kind === kind);
+        return <Section key={kind} title={label} count={xs.length}><FindingList items={xs} empty={profile.run_id ? "Waiting for agents…" : "Start the agents to propose these."} /></Section>;
+      })}
     </div>
   );
 }
@@ -220,7 +287,7 @@ export function CompareView({ client, profile }: { client: LensAPIClient; profil
   };
   return (
     <div>
-      <p className="muted">Pick up to 4 of your other investigations to compare with {profile.domain}.</p>
+      <p className="fine">Pick up to 4 of your other investigations to compare with {profile.domain}, using the same capability list.</p>
       {others.slice(0, 30).map((w) => (
         <label key={w.id} className="item">
           <input type="checkbox" checked={picked.includes(w.id)} disabled={!picked.includes(w.id) && picked.length >= 4}
@@ -228,7 +295,7 @@ export function CompareView({ client, profile }: { client: LensAPIClient; profil
           <span>{w.domain} <span className="muted">{w.created_at ? new Date(w.created_at).toLocaleDateString() : ""}</span></span>
         </label>
       ))}
-      <div className="row"><button className="primary" onClick={compare} disabled={picked.length === 0}>Compare {picked.length + 1} websites</button></div>
+      <button className="primary block" onClick={compare} disabled={picked.length === 0}>{picked.length === 0 ? "Pick at least one site" : `Compare ${picked.length + 1} websites`}</button>
       {cmpError && <p className="error">{cmpError}</p>}
       {cmp && (
         <div>
